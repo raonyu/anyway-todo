@@ -20,4 +20,20 @@ db.run(`
     )
 `);
 
+// tasks 테이블 생성
+db.run(`
+    CREATE TABLE IF NOT EXISTS tasks (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER,
+        title TEXT NOT NULL,
+        memo TEXT,
+        deadline_date TEXT,
+        deadline_time TEXT,
+        quadrant TEXT,
+        delay_count INTEGER DEFAULT 0,
+        is_completed INTEGER DEFAULT 0
+    )
+`);
+
 module.exports = db;
+

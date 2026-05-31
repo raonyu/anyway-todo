@@ -77,3 +77,170 @@ app.post('/login', (req, res) => {
 app.listen(3000, () => {
     console.log('서버 실행 중!');
 });
+
+// 할 일 목록 조회 API
+app.get('/tasks', (req, res) => {
+
+    const user_id = req.query.user_id;
+
+    const sql =
+        `SELECT * FROM tasks
+         WHERE user_id = ?`;
+
+    db.all(sql, [user_id], (err, rows) => {
+
+        if (err) {
+
+            return res.status(500).json({
+                message: '할 일 조회 실패'
+            });
+
+        }
+
+        res.json(rows);
+
+    });
+
+});
+
+// 할 일 추가 API
+app.post('/tasks', (req, res) => {
+
+    const {
+        user_id,
+        title,
+        memo,
+        deadline_date,
+        deadline_time,
+        quadrant
+    } = req.body;
+
+    const sql = `
+        INSERT INTO tasks (
+            user_id,
+            title,
+            memo,
+            deadline_date,
+            deadline_time,
+            quadrant,
+            delay_count,
+            is_completed
+        )
+        VALUES (?, ?, ?, ?, ?, ?, 0, 0)
+    `;
+
+    db.run(
+        sql,
+        [
+            user_id,
+            title,
+            memo,
+            deadline_date,
+            deadline_time,
+            quadrant
+        ],
+        function(err) {
+
+            if (err) {
+
+                return res.status(500).json({
+                    message: '할 일 추가 실패'
+                });
+
+            }
+
+            res.json({
+                message: '할 일 추가 성공',
+                task_id: this.lastID
+            });
+
+        }
+    );
+
+});
+
+// 할 일 수정 API
+app.put('/tasks/:id', (req, res) => {
+
+    const { id } = req.params;
+
+    const {
+        title,
+        memo,
+        deadline_date,
+        deadline_time,
+        quadrant,
+        delay_count,
+        is_completed
+    } = req.body;
+
+    const sql = `
+        UPDATE tasks
+        SET
+            title = ?,
+            memo = ?,
+            deadline_date = ?,
+            deadline_time = ?,
+            quadrant = ?,
+            delay_count = ?,
+            is_completed = ?
+        WHERE id = ?
+    `;
+
+    db.run(
+        sql,
+        [
+            title,
+            memo,
+            deadline_date,
+            deadline_time,
+            quadrant,
+            delay_count,
+            is_completed,
+            id
+        ],
+        function(err) {
+
+            if (err) {
+
+                return res.status(500).json({
+                    message: '할 일 수정 실패'
+                });
+
+            }
+
+            res.json({
+                message: '할 일 수정 성공'
+            });
+
+        }
+    );
+
+});
+
+// 할 일 삭제 API
+app.delete('/tasks/:id', (req, res) => {
+
+    const { id } = req.params;
+
+    const sql =
+        `DELETE FROM tasks
+         WHERE id = ?`;
+
+    db.run(sql, [id], function(err) {
+
+        if (err) {
+
+            return res.status(500).json({
+                message: '할 일 삭제 실패'
+            });
+
+        }
+
+        res.json({
+            message: '할 일 삭제 성공'
+        });
+
+    });
+
+});
