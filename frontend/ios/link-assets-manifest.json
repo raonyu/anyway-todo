@@ -1,0 +1,13 @@
+{
+  "migIndex": 1,
+  "data": [
+    {
+      "path": "assets/fonts/Galmuri9.ttf",
+      "sha1": "e6bfecdd01ee199adead6976cfcd0b7cf8481de1"
+    },
+    {
+      "path": "assets/fonts/NanumSquareNeobRg.ttf",
+      "sha1": "71fe16804bfb047541786372fb85e7c0d5bc210c"
+    }
+  ]
+}
