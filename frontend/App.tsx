@@ -7,12 +7,12 @@ import { createStackNavigator } from '@react-navigation/stack';
 import LinearGradient from 'react-native-linear-gradient';
 import Svg, { Defs, Pattern, Rect, Path as SvgPath } from 'react-native-svg';
 
-// 만든 로그인 스크린 및 태스크 스크린 불러오기
+// 만든 스크린 불러오기
 import LoginScreen from './LoginScreen';
-import TaskScreen from './TaskScreen'; // 💡 여기에 진짜 태스크 스크린을 연결합니다!
+import TaskScreen from './TaskScreen'; 
+import CalendarScreen from './CalendarScreen'; // 💡 캘린더 스크린 연결 완료!
 
-// 🚨 임시 화면 컴포넌트들 (나중에 각각 파일로 분리하세요!)
-const CalendarScreen = () => <View style={{ flex: 1 }} />;
+// 🚨 임시 화면 컴포넌트 (나중에 메인 화면 만들 때 수정)
 const MainScreen = () => <View style={{ flex: 1 }} />;
 
 const Tab = createMaterialTopTabNavigator();

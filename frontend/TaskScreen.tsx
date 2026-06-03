@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   StyleSheet,
   Text,
@@ -13,6 +13,9 @@ import {
   Keyboard,
   Switch,
 } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native'; // 💡 탭 전환 시 새로고침을 위한 훅 추가!
+
+const SERVER_URL = Platform.OS === 'android' ? 'http://10.0.2.2:3000' : 'http://localhost:3000';
 
 interface Task {
   id: number;
@@ -41,6 +44,8 @@ export default function TaskScreen() {
   const [hasTime, setHasTime] = useState(false);
   const [deadlineDate, setDeadlineDate] = useState('');
   const [deadlineTime, setDeadlineTime] = useState('');
+  
+  const [tempDelayCount, setTempDelayCount] = useState(0);
 
   const [selectedHour, setSelectedHour] = useState('12');
   const [selectedMinute, setSelectedMinute] = useState('00');
@@ -48,19 +53,35 @@ export default function TaskScreen() {
   const [currentYear, setCurrentYear] = useState(new Date().getFullYear());
   const [currentMonth, setCurrentMonth] = useState(new Date().getMonth() + 1);
 
-  useEffect(() => {
-    const today = new Date();
-    const y = today.getFullYear();
-    const m = today.getMonth() + 1;
-    const d = today.getDate();
-    
-    setTasks([
-      { id: 1, title: '병원 예약', memo: '치과 스케일링', deadlineDate: `${y}. ${m}. ${d}.`, deadlineTime: '14:00', quadrant: '당장 해', delayCount: 0, isCompleted: false },
-      { id: 2, title: '테니스 레슨', memo: '', deadlineDate: `${y}. ${m}. ${d + 2}.`, deadlineTime: '19:00', quadrant: '그래도 해', delayCount: 0, isCompleted: true },
-      { id: 3, title: '구독 목록 업데이트', memo: '넷플릭스 해지', deadlineDate: `${y}. ${m}. ${d + 1}.`, deadlineTime: '', quadrant: '해치워', delayCount: 0, isCompleted: false },
-      { id: 4, title: '책 색깔별로 재정렬', memo: '', deadlineDate: '2026. 12. 31.', deadlineTime: '', quadrant: '나중에 해', delayCount: 0, isCompleted: false },
-    ]);
-  }, []);
+  // 🚀 DB에서 할 일 목록 가져오기
+  const fetchTasks = async () => {
+    try {
+      const response = await fetch(`${SERVER_URL}/tasks?user_id=1`);
+      if (response.ok) {
+        const data = await response.json();
+        const formattedData = data.map((item: any) => ({
+          id: item.id,
+          title: item.title,
+          memo: item.memo || '',
+          deadlineDate: item.deadline_date || '',
+          deadlineTime: item.deadline_time || '',
+          quadrant: item.quadrant,
+          delayCount: item.delay_count,
+          isCompleted: item.is_completed === 1
+        }));
+        setTasks(formattedData);
+      }
+    } catch (error) {
+      console.error("데이터 불러오기 실패:", error);
+    }
+  };
+
+  // 💡 기존의 useEffect 대신 useFocusEffect를 사용하여 탭을 누를 때마다 최신화!
+  useFocusEffect(
+    useCallback(() => {
+      fetchTasks();
+    }, [])
+  );
 
   useEffect(() => {
     if (hasTime) setDeadlineTime(`${selectedHour}:${selectedMinute}`);
@@ -116,6 +137,7 @@ export default function TaskScreen() {
     setCurrentQuadrant(quadrant);
     setTitle(''); setMemo(''); setDeadlineDate(''); setDeadlineTime('');
     setHasDate(false); setHasTime(false);
+    setTempDelayCount(0); 
     
     const today = new Date();
     setCurrentYear(today.getFullYear());
@@ -132,6 +154,7 @@ export default function TaskScreen() {
     setTitle(task.title); setMemo(task.memo); 
     setDeadlineDate(task.deadlineDate); setDeadlineTime(task.deadlineTime);
     setHasDate(!!task.deadlineDate); setHasTime(!!task.deadlineTime);
+    setTempDelayCount(task.delayCount || 0); 
     
     if (task.deadlineTime) {
       const [h, m] = task.deadlineTime.split(':');
@@ -146,26 +169,86 @@ export default function TaskScreen() {
     setDeadlineVisible(false);
   };
 
-  const toggleTaskCompletion = (id: number) => {
-    setTasks(tasks.map(t => t.id === id ? { ...t, isCompleted: !t.isCompleted } : t));
+  const toggleTaskCompletion = async (task: Task) => {
+    const newCompletedStatus = !task.isCompleted;
+    setTasks(tasks.map(t => t.id === task.id ? { ...t, isCompleted: newCompletedStatus } : t));
+
+    try {
+      await fetch(`${SERVER_URL}/tasks/${task.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: task.title,
+          memo: task.memo,
+          deadline_date: task.deadlineDate,
+          deadline_time: task.deadlineTime,
+          quadrant: task.quadrant,
+          delay_count: task.delayCount,
+          is_completed: newCompletedStatus
+        })
+      });
+    } catch (error) {
+      console.error("완료 상태 업데이트 실패:", error);
+    }
   };
 
-  const saveTask = () => {
+  const handlePostpone = () => {
+    let targetDate = new Date(); 
+    
+    if (hasDate && deadlineDate) {
+      const parts = deadlineDate.match(/(\d+)\.\s*(\d+)\.\s*(\d+)\./);
+      if (parts) {
+        targetDate = new Date(parseInt(parts[1]), parseInt(parts[2]) - 1, parseInt(parts[3]));
+      }
+    }
+    
+    targetDate.setDate(targetDate.getDate() + 1); 
+    
+    setDeadlineDate(`${targetDate.getFullYear()}. ${targetDate.getMonth() + 1}. ${targetDate.getDate()}.`);
+    setHasDate(true);
+    setTempDelayCount(prev => prev + 1); 
+  };
+
+  const saveTask = async () => {
     if (!title.trim()) return;
     const finalDate = hasDate ? deadlineDate : '';
     const finalTime = hasTime ? deadlineTime : '';
 
-    if (isEditMode && editTaskId) {
-      setTasks(tasks.map(t => t.id === editTaskId ? { ...t, title, memo, deadlineDate: finalDate, deadlineTime: finalTime, quadrant: currentQuadrant } : t));
-    } else {
-      setTasks([...tasks, { id: Date.now(), title, memo, deadlineDate: finalDate, deadlineTime: finalTime, quadrant: currentQuadrant, delayCount: 0, isCompleted: false }]);
+    try {
+      if (isEditMode && editTaskId) {
+        await fetch(`${SERVER_URL}/tasks/${editTaskId}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            title, memo, deadline_date: finalDate, deadline_time: finalTime, 
+            quadrant: currentQuadrant, delay_count: tempDelayCount, is_completed: false
+          })
+        });
+      } else {
+        await fetch(`${SERVER_URL}/tasks`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            user_id: 1, title, memo, deadline_date: finalDate, deadline_time: finalTime, quadrant: currentQuadrant
+          })
+        });
+      }
+      setAddModalVisible(false);
+      fetchTasks(); // 최신 DB 새로고침
+    } catch (error) {
+      console.error("태스크 저장 실패:", error);
     }
-    setAddModalVisible(false);
   };
 
-  const deleteTask = () => {
-    if (editTaskId) setTasks(tasks.filter(t => t.id !== editTaskId));
-    setAddModalVisible(false);
+  const deleteTask = async () => {
+    if (!editTaskId) return;
+    try {
+      await fetch(`${SERVER_URL}/tasks/${editTaskId}`, { method: 'DELETE' });
+      setAddModalVisible(false);
+      fetchTasks();
+    } catch (error) {
+      console.error("태스크 삭제 실패:", error);
+    }
   };
 
   const generateCalendar = () => {
@@ -204,7 +287,7 @@ export default function TaskScreen() {
             const formattedDeadline = getFormattedDeadline(task.deadlineDate, task.deadlineTime);
             return (
               <View key={task.id} style={styles.taskItem}>
-                <TouchableOpacity onPress={() => toggleTaskCompletion(task.id)} style={styles.checkbox}>
+                <TouchableOpacity onPress={() => toggleTaskCompletion(task)} style={styles.checkbox}>
                   <Text style={[styles.checkboxText, task.isCompleted && styles.completedColor]}>
                     {task.isCompleted ? '☑' : '☐'}
                   </Text>
@@ -212,7 +295,10 @@ export default function TaskScreen() {
                 
                 <TouchableOpacity style={styles.taskTextContent} onPress={() => openEditModal(task)}>
                   <Text style={[styles.taskTitleText, task.isCompleted && styles.completedTaskText]}>
-                    {task.title}
+                    {task.title} 
+                    {task.delayCount > 0 && !task.isCompleted && (
+                      <Text style={styles.delayCountText}> (+{task.delayCount})</Text>
+                    )}
                   </Text>
                   {qTitle !== '나중에 해' && formattedDeadline ? (
                     <Text style={[styles.taskDeadlineText, task.isCompleted ? styles.completedColor : (urgent ? styles.urgentColor : styles.defaultColor)]}>
@@ -271,22 +357,35 @@ export default function TaskScreen() {
                 />
 
                 {(hasDate || hasTime) && currentQuadrant !== '나중에 해' ? (
-                  <Text style={styles.dateDisplay}>마감: {getFormattedDeadline(hasDate ? deadlineDate : '', hasTime ? deadlineTime : '')}</Text>
+                  <Text style={styles.dateDisplay}>
+                    마감: {getFormattedDeadline(hasDate ? deadlineDate : '', hasTime ? deadlineTime : '')} 
+                    {tempDelayCount > 0 && <Text style={{color: '#ff5a5a'}}> ({tempDelayCount}번 미룸)</Text>}
+                  </Text>
                 ) : null}
 
                 <View style={styles.toolbar}>
                   <View style={styles.iconGroup}>
-                    <TouchableOpacity style={styles.iconBtn} onPress={() => { Keyboard.dismiss(); setDeadlineVisible(true); }}>
-                      <Text style={styles.iconText}>📅</Text>
-                    </TouchableOpacity>
+                    {currentQuadrant !== '나중에 해' && (
+                      <>
+                        <TouchableOpacity style={[styles.iconBtn, { marginLeft: -4 }]} onPress={() => { Keyboard.dismiss(); setDeadlineVisible(true); }}>
+                          <Text style={styles.iconText}>📅</Text>
+                        </TouchableOpacity>
+                        
+                        {isEditMode && (
+                          <TouchableOpacity style={[styles.postponeBtn, { marginLeft: 10 }]} onPress={handlePostpone}>
+                            <Text style={styles.postponeText}>내일로 미루기</Text>
+                          </TouchableOpacity>
+                        )}
+                      </>
+                    )}
                   </View>
                   <View style={styles.actionGroup}>
                     {isEditMode && (
-                      <TouchableOpacity style={[styles.actionBtn, { backgroundColor: '#ff5a5a' }]} onPress={deleteTask}>
+                      <TouchableOpacity style={styles.actionBtnDel} onPress={deleteTask}>
                         <Text style={styles.actionBtnText}>삭제</Text>
                       </TouchableOpacity>
                     )}
-                    <TouchableOpacity style={[styles.actionBtn, { backgroundColor: '#ffb31b' }]} onPress={saveTask}>
+                    <TouchableOpacity style={[styles.actionBtnSave, { marginLeft: isEditMode ? 10 : 0 }]} onPress={saveTask}>
                       <Text style={[styles.actionBtnText, { color: '#fff' }]}>{isEditMode ? '저장' : '추가'}</Text>
                     </TouchableOpacity>
                   </View>
@@ -434,27 +533,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
   },
   quadrantTitleWrapper: { flexDirection: 'row', alignItems: 'center' },
-  dot: { 
-    width: 8, 
-    height: 8, 
-    borderRadius: 4, 
-    marginRight: 10 
-  },
-  
-  /* 🛠️ [폰트 크기 조절] 사분할 상단 제목 (ex. 당장 해) */
-  quadrantTitle: { 
-    fontFamily: 'Galmuri9', 
-    fontSize: 14, 
-    color: '#1a0f00' 
-  }, 
-  
-  /* 🛠️ [폰트 크기 조절] 사분할 상단 + 추가 버튼 */
-  addIcon: { 
-    fontFamily: 'Galmuri9', 
-    fontSize: 20, 
-    color: '#888', 
-    paddingHorizontal: 5 
-  },
+  dot: { width: 8, height: 8, borderRadius: 4, marginRight: 10 },
+  quadrantTitle: { fontFamily: 'Galmuri9', fontSize: 14, color: '#1a0f00' }, 
+  addIcon: { fontFamily: 'Galmuri9', fontSize: 20, color: '#888', paddingHorizontal: 5 },
   
   taskList: { flex: 1, padding: 12 },
   taskItem: { flexDirection: 'row', alignItems: 'flex-start', marginBottom: 15 },
@@ -462,20 +543,10 @@ const styles = StyleSheet.create({
   checkboxText: { fontFamily: 'Galmuri9', fontSize: 14, color: '#333' },
   taskTextContent: { flex: 1 },
   
-  /* 🛠️ [폰트 크기 조절] 실제 할 일(태스크) 제목 */
-  taskTitleText: { 
-    fontFamily: 'Galmuri9', 
-    fontSize: 12, 
-    color: '#333', 
-    marginBottom: 2 
-  }, 
+  taskTitleText: { fontFamily: 'Galmuri9', fontSize: 12, color: '#333', marginBottom: 2 }, 
+  delayCountText: { color: '#ff5a5a', fontSize: 10 },
   completedTaskText: { color: '#a0a0a0', textDecorationLine: 'line-through' }, 
-  
-  /* 🛠️ [폰트 크기 조절] 실제 마감일 날짜 텍스트 */
-  taskDeadlineText: { 
-    fontFamily: 'Galmuri9', 
-    fontSize: 10 
-  }, 
+  taskDeadlineText: { fontFamily: 'Galmuri9', fontSize: 10 }, 
   
   defaultColor: { color: '#a0a0a0' },
   urgentColor: { color: '#ff5a5a' },
@@ -488,32 +559,26 @@ const styles = StyleSheet.create({
   qTab: { fontFamily: 'Galmuri9', fontSize: 12, color: '#666', padding: 5 },
   qTabActive: { color: '#ffb31b', textDecorationLine: 'underline' },
   closeBtn: { fontFamily: 'Galmuri9', fontSize: 16, color: '#fff' },
-  inputTitle: { fontFamily: 'Galmuri9', fontSize: 18, color: '#fff', borderBottomWidth: 1, borderColor: '#333', paddingVertical: 10, marginBottom: 10 },
-  inputMemo: { fontFamily: 'Galmuri9', fontSize: 14, color: '#fff', paddingVertical: 10, minHeight: 40 },
-  dateDisplay: { fontFamily: 'Galmuri9', fontSize: 12, color: '#5a9aff', marginTop: 10 },
+  
+  inputTitle: { fontFamily: 'Galmuri9', fontSize: 18, color: '#fff', borderBottomWidth: 1, borderColor: '#333', paddingVertical: 10, paddingHorizontal: 0, paddingLeft: 0, margin: 0, marginBottom: 10 },
+  inputMemo: { fontFamily: 'Galmuri9', fontSize: 14, color: '#fff', paddingVertical: 10, paddingHorizontal: 0, paddingLeft: 0, margin: 0, minHeight: 40 },
+  dateDisplay: { fontFamily: 'Galmuri9', fontSize: 12, color: '#5a9aff', marginTop: 10, paddingHorizontal: 0, paddingLeft: 0, margin: 0 },
+  
   toolbar: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 20 },
-  iconGroup: { flexDirection: 'row' },
-  iconBtn: { padding: 10, backgroundColor: '#333', borderRadius: 8, marginRight: 10 },
-  iconText: { fontFamily: 'Galmuri9', fontSize: 16 },
-  
+  iconGroup: { flexDirection: 'row', alignItems: 'center' },
+  iconBtn: { height: 40, paddingHorizontal: 15, backgroundColor: '#333', borderRadius: 16, justifyContent: 'center', alignItems: 'center' },
+  iconText: { fontFamily: 'Galmuri9', fontSize: 14 }, 
+  postponeBtn: { height: 40, paddingHorizontal: 15, backgroundColor: '#333', borderRadius: 16, justifyContent: 'center', alignItems: 'center' },
+  postponeText: { fontFamily: 'Galmuri9', fontSize: 14, color: '#fff' }, 
   actionGroup: { flexDirection: 'row' },
-  
-  /* 🛠️ [모서리 둥글기 조절] 추가, 저장, 삭제 버튼의 모서리 둥글기 설정 (8 -> 16으로 증가) */
-  actionBtn: { 
-    paddingVertical: 10, 
-    paddingHorizontal: 20, 
-    borderRadius: 16, // 숫자를 높일수록 원형에 가까워집니다!
-    marginLeft: 10 
-  },
-  
+  actionBtnDel: { height: 40, paddingHorizontal: 20, backgroundColor: '#ff5a5a', borderRadius: 16, justifyContent: 'center', alignItems: 'center' },
+  actionBtnSave: { height: 40, paddingHorizontal: 20, backgroundColor: '#ffb31b', borderRadius: 16, justifyContent: 'center', alignItems: 'center' },
   actionBtnText: { fontFamily: 'Galmuri9', fontSize: 14 },
 
   modalOverlayCenter: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center', alignItems: 'center', zIndex: 1000 },
   deadlineSettingsBox: { backgroundColor: '#2c2c2e', width: '85%', borderRadius: 16, padding: 20 },
-  
   deadlineSettingsHeader: { alignItems: 'center', marginBottom: 20 },
   deadlineSettingsTitle: { fontFamily: 'Galmuri9', fontSize: 16, color: '#fff' },
-  
   toggleRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#3a3a3c', padding: 15, borderRadius: 12, marginBottom: 10 },
   toggleTextGroup: { flexDirection: 'row', alignItems: 'center' },
   toggleLabel: { fontFamily: 'Galmuri9', fontSize: 14, color: '#fff', marginRight: 15 },
@@ -540,15 +605,6 @@ const styles = StyleSheet.create({
   timePickerTextSelected: { fontFamily: 'Galmuri9', color: '#ffb31b', fontSize: 20 },
   timeColon: { fontFamily: 'Galmuri9', fontSize: 20, color: '#fff', paddingHorizontal: 20 },
 
-  pixelConfirmBtn: { 
-    alignSelf: 'center', 
-    marginTop: 15, 
-    padding: 10 
-  },
-  pixelConfirmText: { 
-    fontFamily: 'Galmuri9', 
-    fontSize: 16, 
-    color: '#fff', 
-    textDecorationLine: 'underline' 
-  }
+  pixelConfirmBtn: { alignSelf: 'center', marginTop: 15, padding: 10 },
+  pixelConfirmText: { fontFamily: 'Galmuri9', fontSize: 16, color: '#fff', textDecorationLine: 'underline' }
 });
