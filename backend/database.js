@@ -23,7 +23,7 @@ db.run(`
     CREATE TABLE IF NOT EXISTS tasks (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         user_id INTEGER,
-        title TEXT,
+        title TEXT NOT NULL,
         memo TEXT,
         deadline_date TEXT,
         deadline_time TEXT,
