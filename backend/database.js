@@ -13,7 +13,11 @@ db.run(`
     CREATE TABLE IF NOT EXISTS users (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         username TEXT UNIQUE,
-        password TEXT
+        password TEXT,
+        streak_count INTEGER DEFAULT 0,
+        best_streak INTEGER DEFAULT 0,
+        last_completion_date TEXT,
+        shield_count INTEGER DEFAULT 1
     )
 `);
 
@@ -32,5 +36,40 @@ db.run(`
         is_completed INTEGER DEFAULT 0
     )
 `);
+
+module.exports = db;
+
+// 추천 기록 테이블 생성
+db.run(`
+    CREATE TABLE IF NOT EXISTS daily_recommendations (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER,
+        task_id INTEGER,
+        recommend_date TEXT,
+        is_postponed INTEGER DEFAULT 0
+    )
+`);
+
+db.run(`
+    ALTER TABLE daily_recommendations
+    ADD COLUMN is_postponed INTEGER DEFAULT 0
+`, (err) => {
+
+    if (err) {
+        console.log('is_postponed 이미 존재');
+    }
+
+});
+
+db.run(`
+    ALTER TABLE users
+    ADD COLUMN shield_count INTEGER DEFAULT 1
+`, (err) => {
+
+    if (err) {
+        console.log('shield_count 이미 존재');
+    }
+
+});
 
 module.exports = db;
