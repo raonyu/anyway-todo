@@ -119,11 +119,7 @@ app.put('/tasks/:id', (req, res) => {
     `;
     
     const completedInt = is_completed ? 1 : 0; // DB 저장을 위해 변환
-
-    db.run(sql, [title, memo, deadline_date, deadline_time, quadrant, delay_count, completedInt, req.params.id], function(err) {
-        if (err) return res.status(500).json({ error: err.message });
-        res.json({ message: '수정 성공' });
-    });
+    const { id } = req.params;
 
     db.run(
         sql,
@@ -134,7 +130,7 @@ app.put('/tasks/:id', (req, res) => {
             deadline_time,
             quadrant,
             delay_count,
-            is_completed,
+            completedInt,
             id
         ],
         function(err) {
@@ -148,7 +144,7 @@ app.put('/tasks/:id', (req, res) => {
             }
 
             // 완료 처리가 아니면 종료
-            if (is_completed !== 1) {
+            if (completedInt !== 1) {
 
                 return res.json({
                     message: '할 일 수정 성공'
@@ -365,10 +361,6 @@ app.delete('/tasks/:id', (req, res) => {
     });
 });
 
-app.listen(3000, () => {
-    console.log('서버 실행 중! (http://localhost:3000)');
-});
-
 // 오늘의 추천 할 일 조회
 app.get('/recommend/:userId', (req, res) => {
 
@@ -427,8 +419,6 @@ app.get('/recommend/:userId', (req, res) => {
 
             // 오늘 추천이 이미 존재하면 반환
             if (rows.length > 0) {
-
-                const ids = rows.map(row => row.task_id);
 
                 //현재 추천 중인 작업
                 const activeIds = rows
@@ -530,7 +520,11 @@ app.get('/recommendations', (req, res) => {
     });
 
 });
-
+// =====================================
+// 구버전 API
+// 현재는 /daily-check/:userId 사용
+// 추후 삭제 예정
+// =====================================
 // 연속달성 판정 API
 app.post('/check-streak/:userId', (req, res) => {
 
@@ -670,10 +664,6 @@ app.post('/check-today-success/:userId', (req, res) => {
         `,
         [userId, today],
         (err, recommendedTasks) => {
-            const activeTasks = 
-                recommendedTasks.filter(task => 
-                    task.is_postponed === 0
-                );
 
             if (err) {
 
@@ -682,6 +672,11 @@ app.post('/check-today-success/:userId', (req, res) => {
                 });
 
             }
+
+            const activeTasks = 
+                recommendedTasks.filter(task =>
+                    task.is_postponed === 0
+                );
 
             // 오늘 마감 추천 할 일 찾기
             const todayDeadlineTasks =
