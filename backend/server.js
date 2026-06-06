@@ -1,276 +1,669 @@
-const express = require('express');
-const cors = require('cors');
-const db = require('./database'); 
+const express = require("express");
+const cors = require("cors");
+const db = require("./database");
 
 const app = express();
-
-app.use(cors());
 app.use(express.json());
+app.use(cors());
 
-// 기본 테스트
-app.get('/', (req, res) => {
-    res.send('서버 실행 성공!');
-});
+function getDeadlineUrgency(deadlineDate) {
 
-// 회원가입 API
-app.post('/signup', (req, res) => {
-    const { username, password } = req.body;
-    const sql = `INSERT INTO users (username, password) VALUES (?, ?)`;
-    db.run(sql, [username, password], function(err) {
-        if (err) return res.status(400).json({ message: '이미 존재하는 아이디입니다.' });
-        res.json({ message: '회원가입 성공!' });
-    });
-});
+    if (!deadlineDate) {
+        return 0;
+    }
 
-// 로그인 API
-app.post('/login', (req, res) => {
-    const { username, password } = req.body;
-    const sql = `SELECT * FROM users WHERE username = ? AND password = ?`;
-    db.get(sql, [username, password], (err, row) => {
-        if (row) res.json({ message: '로그인 성공!' });
-        else res.status(401).json({ message: '아이디 또는 비밀번호가 틀렸습니다.' });
-    });
-});
+    const match = deadlineDate.match(
+        /(\d+)\.\s*(\d+)\.\s*(\d+)\./
+    );
 
-// 연속 달성 조회 API
-app.get('/streak/:userId', (req, res) => {
+    if (!match) {
+        return 0;
+    }
 
-    const { userId } = req.params;
+    const target = new Date(
+        Number(match[1]),
+        Number(match[2]) - 1,
+        Number(match[3])
+    );
 
-    const sql = `
-        SELECT
-            streak_count,
-            best_streak,
-            last_completion_date
-        FROM users
-        WHERE id = ?
-    `;
+    const today = new Date();
 
-    db.get(sql, [userId], (err, row) => {
+    today.setHours(0,0,0,0);
+    target.setHours(0,0,0,0);
 
-        if (err) {
-            return res.status(500).json({
-                message: '조회 실패'
-            });
-        }
+    const diffDays =
+        Math.floor(
+            (target - today) /
+            (1000 * 60 * 60 * 24)
+        );
 
-        res.json(row);
+    if (diffDays <= 0) return 25;
+    if (diffDays === 1) return 15;
+    if (diffDays >= 2 && diffDays <= 5) {
+        return 10;
+    }
+    if (diffDays >=6 && diffDays <= 14) {
+        return 5;
+    }
 
-    });
+    return 0;
+}
 
-});
-
-// 방어권 조회 API
-app.get('/shield/:userId', (req, res) => {
-
-    const { userId } = req.params;
-
-    const sql = `
-        SELECT shield_count
-        FROM users
-        WHERE id = ?
-    `;
-
-    db.get(sql, [userId], (err, row) => {
-
-        if (err) {
-
-            return res.status(500).json({
-                message: '조회 실패'
-            });
-
-        }
-
-        res.json(row);
-
-    });
-
-});
-
-// 할 일 목록 조회 API
-app.get('/tasks', (req, res) => {
-    const user_id = req.query.user_id || 1; // 임시로 user_id 1번 고정
-    const sql = `SELECT * FROM tasks WHERE user_id = ?`;
-    
-    db.all(sql, [user_id], (err, rows) => {
-        if (err) return res.status(500).json({ error: err.message });
-        res.json(rows);
-    });
-});
-
-// 2. 할 일 추가하기 (POST)
-app.post('/tasks', (req, res) => {
-    const { user_id, title, memo, deadline_date, deadline_time, quadrant } = req.body;
-    const sql = `INSERT INTO tasks (user_id, title, memo, deadline_date, deadline_time, quadrant) VALUES (?, ?, ?, ?, ?, ?)`;
-    
-    db.run(sql, [user_id || 1, title, memo, deadline_date, deadline_time, quadrant], function(err) {
-        if (err) return res.status(500).json({ error: err.message });
-        res.json({ message: '추가 성공', id: this.lastID });
-    });
-});
-
-// 3. 할 일 수정/완료/미루기 (PUT)
-app.put('/tasks/:id', (req, res) => {
-    const { title, memo, deadline_date, deadline_time, quadrant, delay_count, is_completed } = req.body;
-    const sql = `
-        UPDATE tasks 
-        SET title = ?, memo = ?, deadline_date = ?, deadline_time = ?, quadrant = ?, delay_count = ?, is_completed = ?
-        WHERE id = ?
-    `;
-    
-    const completedInt = is_completed ? 1 : 0; // DB 저장을 위해 변환
-    const { id } = req.params;
+function generateRecommendations(userId, callback) {
 
     db.run(
-        sql,
-        [
-            title,
-            memo,
-            deadline_date,
-            deadline_time,
-            quadrant,
-            delay_count,
-            completedInt,
-            id
-        ],
-        function(err) {
+        `
+        UPDATE tasks
+        SET
+            recommended_today = 0
+        WHERE user_id = ?
+        `,
+        [userId],
+        (resetErr) => {
 
-            if (err) {
-
-                return res.status(500).json({
-                    message: '할 일 수정 실패'
-                });
-
+            if (resetErr) {
+                return callback(resetErr);
             }
 
-            // 완료 처리가 아니면 종료
-            if (completedInt !== 1) {
+            db.all(
+                `
+                SELECT *
+                FROM tasks
+                WHERE user_id = ?
+                AND is_completed = 0
+                AND postponed_today = 0
+                `,
+                [userId],
+                (err, tasks) => {
 
-                return res.json({
-                    message: '할 일 수정 성공'
-                });
-
-            }
-
-            // 현재 task 정보 조회
-            db.get(
-                `SELECT * FROM tasks WHERE id = ?`,
-                [id],
-                (err, task) => {
-
-                    if (!task) {
-
-                        return res.json({
-                            message: '할 일 수정 성공'
-                        });
-
+                    if (err) {
+                        return callback(err);
                     }
 
-                    const today =
-                        new Date().toISOString().split('T')[0];
+                    const quadrantScore = {
+                        "당장 해": 40,
+                        "그래도 해": 30,
+                        "해치워": 20,
+                        "나중에 해": 10
+                    };
 
-                    // 오늘 추천 목록 확인
-                    db.all(
-                        `
-                        SELECT *
-                        FROM daily_recommendations
-                        WHERE user_id = ?
-                        AND recommend_date = ?
-                        `,
-                        [task.user_id, today],
-                        (err, recommendations) => {
+                    tasks.sort((a, b) => {
 
-                            const isRecommended =
-                                recommendations.some(
-                                    r => r.task_id == id
-                                );
+                        const scoreA =
+                            getDeadlineUrgency(a.deadline_date)
+                            + (quadrantScore[a.quadrant] || 0);
 
-                            // 추천 목록 아니면 종료
-                            if (!isRecommended) {
+                        const scoreB =
+                            getDeadlineUrgency(b.deadline_date)
+                            + (quadrantScore[b.quadrant] || 0);
 
-                                return res.json({
-                                    message: '할 일 수정 성공'
-                                });
+                        return scoreB - scoreA;
+                    });
 
+                    const topTasks =
+                        tasks.slice(0, 3);
+
+                    let remaining =
+                        topTasks.length;
+
+                    if (remaining === 0) {
+                        return callback(null, []);
+                    }
+
+                    topTasks.forEach(task => {
+
+                        db.run(
+                            `
+                            UPDATE tasks
+                            SET
+                                recommended_today = 1,
+                                recommended_date = ?
+                            WHERE id = ?
+                            `,
+                            [
+                                new Date()
+                                    .toISOString()
+                                    .split("T")[0],
+                                task.id
+                            ],
+                            (updateErr) => {
+
+                                if (updateErr) {
+                                    return callback(updateErr);
+                                }
+
+                                remaining--;
+
+                                if (remaining === 0) {
+                                    callback(
+                                        null,
+                                        topTasks
+                                    );
+                                }
                             }
+                        );
+                    });
+                }
+            );
+        }
+    );
+}
 
-                            // 사용자 정보 조회
-                            db.get(
-                                `
-                                SELECT *
-                                FROM users
-                                WHERE id = ?
-                                `,
-                                [task.user_id],
-                                (err, user) => {
+// 회원가입
+app.post("/signup", (req, res) => {
+    const { username, password } = req.body;
 
-                                    // 이미 오늘 streak 증가함
-                                    if (
-                                        user.last_completion_date ===
-                                        today
-                                    ) {
+    db.run(
+        `
+        INSERT INTO users
+        (
+            username,
+            password
+        )
+        VALUES (?, ?)
+        `,
+        [username, password],
+        function(err) {
 
-                                        return res.json({
-                                            message:
-                                                '할 일 수정 성공'
-                                        });
+            if(err) {
+                return res.status(400).json({
+                    success:false,
+                    message: "이미 존재하는 아이디입니다."
+                });
+            }
 
-                                    }
+            res.json({
+                success: true,
+                message: "회원가입 완료"
+            });
+        }
+    );
+});
 
-                                    const newStreak =
+// 로그인
+app.post("/login", (req, res) => {
+    const { username, password } = req.body;
+
+    db.get(
+        `
+        SELECT *
+        FROM users
+        WHERE username = ?
+        AND password = ?
+        `,
+        [username, password],
+        (err, user) => {
+
+            if(err) {
+                return res.status(500).json({
+                    success: false,
+                    message: err.message
+                });
+            }
+
+            if (!user) {
+                return res.json({
+                    success: false,
+                    message: "아이디 또는 비밀번호가 틀렸습니다."
+                });
+            }
+
+            const today =
+              new Date()
+                  .toISOString()
+                  .split("T")[0];
+
+            const shouldCheckStreak =
+              user.last_streak_check_date !== today;
+
+            if (
+              user.today_success_date &&
+              user.today_success_date !== today
+            ) {
+              db.run(
+                `
+                UPDATE users
+                SET
+                    today_success = 0
+                WHERE id = ?
+                `,
+                [user.id]
+              );
+              user.today_success = 0;
+            }
+
+            let shieldUsed = false;
+            let streakFailed = false;
+
+            if (
+              shouldCheckStreak &&
+              user.today_success === 0 &&
+              user.streak_count > 0
+            ) {
+
+              if (user.shield_count > 0) {
+
+                db.run(
+                  `
+                  UPDATE users
+                  SET
+                    shield_count = shield_count - 1,
+                    last_streak_check_date = ?
+                  WHERE id = ?
+                  `,
+                  [today, user.id]
+                );
+
+                user.shield_count -= 1;
+                shieldUsed = true;
+
+              } else {
+
+                db.run(
+                  `
+                  UPDATE users
+                  SET
+                    streak_count = 0,
+                    last_streak_check_date = ?
+                  WHERE id = ?
+                  `,
+                  [today, user.id]
+                );
+                user.streak_count = 0;
+                streakFailed = true;
+              }
+            }
+
+            db.run(
+              `
+              UPDATE tasks
+              SET
+                postponed_today = 0
+              WHERE user_id = ?
+              AND postponed_date IS NOT NULL
+              AND postponed_date < ?    
+              `,
+              [user.id, today]
+            );
+
+            db.run(
+                `
+                UPDATE users
+                SET
+                    last_login_date = ?
+                WHERE id = ?
+                `,
+                [
+                    today,
+                    user.id
+                ]
+            );
+
+            res.json({
+                success: true,
+
+                shield_used: shieldUsed,
+                streak_failed: streakFailed,
+
+                user_id: user.id,
+                username: user.username,
+
+                streak_count: user.streak_count,
+                best_streak: user.best_streak,
+                shield_count: user.shield_count,
+
+                message: "로그인 성공"
+            });
+        }
+    );
+});
+
+/*
+====================================
+1. 할 일 목록 조회
+GET /tasks?user_id=1
+====================================
+*/
+app.get("/tasks", (req, res) => {
+  const userId = req.query.user_id;
+
+  db.all(
+    `
+    SELECT *
+    FROM tasks
+    WHERE user_id = ?
+    ORDER BY id DESC
+    `,
+    [userId],
+    (err, rows) => {
+      if (err) {
+        return res.status(500).json({
+          success: false,
+          message: err.message,
+        });
+      }
+
+      res.json(rows);
+    }
+  );
+});
+
+/*
+====================================
+오늘의 추천 조회
+GET /recommendations?user_id=1
+====================================
+*/
+app.get("/recommendations", (req, res) => {
+
+    const userId = req.query.user_id;
+
+    db.all(
+        `
+        SELECT *
+        FROM tasks
+        WHERE user_id = ?
+        AND recommended_today = 1
+        ORDER BY id DESC
+        LIMIT 3
+        `,
+        [userId],
+        (err, rows) => {
+
+            if (err) {
+                return res.status(500).json({
+                    success: false,
+                    message: err.message
+                });
+            }
+
+            res.json(rows);
+        }
+    );
+});
+
+/*
+====================================
+추천 할일 생성
+POST /recommendations/generate
+====================================
+*/
+app.post("/recommendations/generate", (req, res) => {
+
+    const { user_id } = req.body;
+
+    generateRecommendations(
+        user_id,
+        (err, tasks) => {
+
+            if (err) {
+                return res.status(500).json({
+                    success: false,
+                    message: err.message
+                });
+            }
+            res.json({
+                success: true,
+                count: tasks.length
+            });
+        }
+    );
+});
+
+/*
+====================================
+2. 할 일 추가
+POST /tasks
+====================================
+*/
+app.post("/tasks", (req, res) => {
+  const {
+    user_id,
+    title,
+    memo,
+    deadline_date,
+    deadline_time,
+    quadrant,
+  } = req.body;
+
+  db.run(
+    `
+    INSERT INTO tasks
+    (
+      user_id,
+      title,
+      memo,
+      deadline_date,
+      deadline_time,
+      quadrant,
+      delay_count,
+      is_completed
+    )
+    VALUES (?, ?, ?, ?, ?, ?, 0, 0)
+    `,
+    [
+      user_id,
+      title,
+      memo,
+      deadline_date,
+      deadline_time,
+      quadrant,
+    ],
+    function (err) {
+      if (err) {
+        return res.status(500).json({
+          success: false,
+          message: err.message,
+        });
+      }
+
+    generateRecommendations(
+        user_id,
+        (recommendErr) => {
+
+            if (recommendErr) {
+                return res.status(500).json({
+                    success: false,
+                    message: recommendErr.message
+                });
+            }
+
+            res.json({
+                success: true,
+                task_id: this.lastID,
+                recommended: true
+            });
+        }
+      );
+    }
+  );
+});
+
+/*
+====================================
+3. 할 일 수정
+PUT /tasks/:id
+====================================
+*/
+app.put("/tasks/:id", (req, res) => {
+
+  const taskId = req.params.id;
+
+  const {
+    user_id,
+    title,
+    memo,
+    deadline_date,
+    deadline_time,
+    quadrant,
+    delay_count,
+    is_completed,
+  } = req.body;
+
+  db.run(
+    `
+    UPDATE tasks
+    SET
+      title = ?,
+      memo = ?,
+      deadline_date = ?,
+      deadline_time = ?,
+      quadrant = ?,
+      delay_count = ?,
+      is_completed = ?
+    WHERE id = ?
+    `,
+    [
+      title,
+      memo,
+      deadline_date,
+      deadline_time,
+      quadrant,
+      delay_count,
+      is_completed ? 1 : 0,
+      taskId,
+    ],
+    function (err) {
+
+      if (err) {
+        return res.status(500).json({
+          success: false,
+          message: err.message,
+        });
+      }
+
+        if (is_completed) {
+
+            db.get(
+                `
+                SELECT *
+                FROM tasks
+                WHERE id = ?
+                `,
+                [taskId],
+                (taskErr, task) => {
+
+                    if (
+                        !taskErr &&
+                        task &&
+                        task.recommended_today === 1
+                    ) {
+
+                        db.get(
+                            `
+                            SELECT *
+                            FROM users
+                            WHERE id = ?
+                            `,
+                            [user_id],
+                            (userErr, user) => {
+
+                                const today =
+                                    new Date()
+                                        .toISOString()
+                                        .split("T")[0];
+
+                                if (
+                                    !userErr &&
+                                    user &&
+                                    !(
+                                        user.today_success === 1 &&
+                                        user.today_success_date === today
+                                    )
+                                ) {
+
+                                    const nextStreak =
                                         user.streak_count + 1;
 
-                                    const newBest =
-                                        Math.max(
-                                            newStreak,
-                                            user.best_streak
-                                        );
+                                    let rewardShield = false;
+
+                                    if (
+                                        nextStreak % 7 === 0 &&
+                                        nextStreak >
+                                        user.last_shield_reward_streak
+                                    ) {
+                                        rewardShield = true;
+                                    }
 
                                     db.run(
                                         `
                                         UPDATE users
                                         SET
-                                            streak_count = ?,
-                                            best_streak = ?,
-                                            last_completion_date = ?
+                                            today_success = 1,
+                                            today_success_date = ?,
+
+                                            streak_count = streak_count + 1,
+
+                                            shield_count =
+                                            CASE
+                                                WHEN ? = 1
+                                                THEN shield_count + 1
+                                                ELSE shield_count
+                                            END,
+
+                                            last_shield_reward_streak =
+                                            CASE
+                                                WHEN ? = 1
+                                                THEN ?
+                                                ELSE last_shield_reward_streak
+                                            END,
+
+                                            best_streak =
+                                            CASE
+                                                WHEN streak_count + 1 > best_streak
+                                                THEN streak_count + 1
+                                                ELSE best_streak
+                                            END
                                         WHERE id = ?
                                         `,
                                         [
-                                            newStreak,
-                                            newBest,
                                             today,
-                                            task.user_id
-                                        ],
-                                        () => {
 
-                                            res.json({
-                                                message:
-                                                    '할 일 수정 성공',
-                                                streak_count:
-                                                    newStreak
-                                            });
+                                            rewardShield ? 1 : 0,
 
-                                        }
+                                            rewardShield ? 1 : 0,
+                                            nextStreak,
+
+                                            user_id
+                                        ]
                                     );
-
                                 }
-                            );
-
-                        }
-                    );
-
+                            }
+                        );
+                    }
                 }
             );
-
         }
-    );
 
+        generateRecommendations(
+            user_id,
+            (recommendErr) => {
+                if (recommendErr) {
+                    return res.status(500).json({
+                        success:false,
+                        message: recommendErr.message
+                    });
+                }
+        
+                res.json({
+                    success: true,
+                    updated: this.changes
+                });
+            }
+        );
+    }
+  );
 });
 
-// 내일로 미루기 API
-app.put('/tasks/:id/postpone', (req, res) => {
+/*
+====================================
+내일로 미루기
+POST /tasks/:id/postpone
+====================================
+*/
+app.post("/tasks/:id/postpone", (req, res) => {
 
-    const { id } = req.params;
+    const taskId = req.params.id;
 
     db.get(
         `
@@ -278,642 +671,479 @@ app.put('/tasks/:id/postpone', (req, res) => {
         FROM tasks
         WHERE id = ?
         `,
-        [id],
+        [taskId],
         (err, task) => {
 
-            if (err || !task) {
-
-                return res.status(404).json({
-                    message: '할 일을 찾을 수 없습니다.'
+            if (err) {
+                return res.status(500).json({
+                    success: false,
+                    message: err.message
                 });
-
             }
 
+            if (!task) {
+                return res.status(404).json({
+                    success: false,
+                    message: "할 일을 찾을 수 없습니다."
+                });
+            }
+
+            let newDeadline =
+                task.deadline_date;
+
             const today =
-                new Date().toISOString().split('T')[0];
+                new Date();
 
-            let newDate = task.deadline_date;
+            const todayString =
+                `${today.getFullYear()}. ${today.getMonth() + 1}. ${today.getDate()}.`;
 
-            //오늘 마감인 경우만 마감일 연장
-            if (task.deadline_date === today) {
+            if (
+                task.deadline_date ===
+                todayString
+            ) {
 
-                const currentDate = new Date(task.deadline_date);
-                currentDate.setDate(currentDate.getDate() + 1);
+                const tomorrow =
+                    new Date();
 
-                newDate = currentDate.toISOString().split('T')[0];
-        }
+                tomorrow.setDate(
+                    tomorrow.getDate() + 1
+                );
+
+                newDeadline =
+                    `${tomorrow.getFullYear()}. ${tomorrow.getMonth() + 1}. ${tomorrow.getDate()}.`;
+            }
 
             db.run(
                 `
                 UPDATE tasks
                 SET
                     deadline_date = ?,
-                    delay_count = delay_count + 1
+                    delay_count = delay_count + 1,
+                    postponed_today = 1,
+                    postponed_date = ?
                 WHERE id = ?
                 `,
-                [newDate, id],
-                function(err) {
+                [
+                    newDeadline,
+                    new Date()
+                        .toISOString()
+                        .split("T")[0],
+                    taskId
+                ],
+                function(updateErr) {
 
-                    if (err) {
-
+                    if (updateErr) {
                         return res.status(500).json({
-                            message: '미루기 실패'
+                            success: false,
+                            message: updateErr.message
                         });
-
                     }
 
-                    db.run(
-                        `
-                        UPDATE daily_recommendations
-                        SET is_postponed = 1
-                        WHERE task_id = ?
-                        AND recommend_date = ?
-                        `,
-                        [id, today],
-                        function(err) {
+                    generateRecommendations(
+                        task.user_id,
+                        (recommendErr) => {
 
-                            console.log("변경된 행 수", this.changes);
-
-                            if (err) {
-                                console.log(err);
+                            if (recommendErr) {
+                                return res.status(500).json({
+                                    success: false,
+                                    message: recommendErr.message
+                                });
                             }
+
+                        db.get(
+                                `
+                                SELECT COUNT(*) AS count
+                                FROM tasks
+                                WHERE user_id = ?
+                                AND recommended_today = 1
+                                `,
+                                [task.user_id],
+                                (countErr, result) => {
+
+                                    if (countErr) {
+                                        return res.status(500).json({
+                                            success: false,
+                                            message: countErr.message
+                                        });
+                                    }
+
+                                    if (result.count > 0) {
+
+                                        return res.json({
+                                            success: true
+                                        });
+                                    }
+
+                                    return res.json({
+                                        success: true,
+                                        no_recommendation_left: true
+                                    });
+                                }
+                            );
                         }
                     );
-
-                    res.json({
-                        message: '내일로 미루기 성공',
-                        new_deadline: newDate
-                    });
-
                 }
             );
-
         }
     );
 });
 
-// 4. 할 일 삭제 (DELETE)
-app.delete('/tasks/:id', (req, res) => {
-    const sql = `DELETE FROM tasks WHERE id = ?`;
-    db.run(sql, [req.params.id], function(err) {
-        if (err) return res.status(500).json({ error: err.message });
-        res.json({ message: '삭제 성공' });
-    });
-});
 
-// 오늘의 추천 할 일 조회
-app.get('/recommend/:userId', (req, res) => {
+/*
+====================================
+추천 할일 성공 판정
+POST /streak/check-recommendation-success
+====================================
+*/
+app.post(
+    "/streak/check-recommendation-success",
+    (req, res) => {
 
-    const { userId } = req.params;
+        const { user_id } = req.body;
 
-    const sql = `
-        SELECT *
-        FROM tasks
-        WHERE user_id = ?
-        AND is_completed = 0
-    `;
+        db.get(
+            `
+            SELECT *
+            FROM users
+            WHERE id = ?
+            `,
+            [user_id],
+            (userErr, user) => {
 
-    db.all(sql, [userId], (err, tasks) => {
+                if (userErr) {
+                    return res.status(500).json({
+                        success: false,
+                        message: userErr.message
+                    });
+                }
 
-        if (err) {
-            return res.status(500).json({
-                message: '추천 조회 실패'
-            });
-        }
+                const today =
+                    new Date()
+                        .toISOString()
+                        .split("T")[0];
 
-        if (tasks.length === 0) {
-            return res.json({
-                message: '할 일이 없습니다.'
-            });
-        }
+                if (!user) {
+                    return res.status(404).json({
+                        success: false,
+                        message: "사용자를 찾을 수 없습니다."
+                    })
+                }
 
-        const priority = {
-            '당장 해': 4,
-            '그래도 해': 3,
-            '해치워': 2,
-            '나중에 해': 1
-        };
+                if (
+                    user.today_success === 1 &&
+                    user.today_success_date === today
+                ) {
+                    return res.json({
+                        success: true,
+                        already_processed: true
+                    });
+                }
 
-        tasks.sort((a, b) => {
-            return priority[b.quadrant] - priority[a.quadrant];
-        });
-
-        const recommendedTasks = tasks.slice(0, 3);
-
-        const today = new Date().toISOString().split('T')[0];
-
-        const checkSql = `
-            SELECT task_id, is_postponed
-            FROM daily_recommendations
-            WHERE user_id = ?
-            AND recommend_date = ?
-        `;
-
-        db.all(checkSql, [userId, today], (err, rows) => {
-
-            if (err) {
-                return res.status(500).json({
-                    message: '추천 기록 조회 실패'
-                });
-            }
-
-            // 오늘 추천이 이미 존재하면 반환
-            if (rows.length > 0) {
-
-                //현재 추천 중인 작업
-                const activeIds = rows
-                .filter(row => row.is_postponed === 0)
-                .map(row => row.task_id);
-
-                const existingTasks = tasks.filter(task =>
-                    activeIds.includes(task.id)
-                );
-
-                //오늘 이미 추천되었거나 미뤄진 작업
-                const excludedIds = rows.map(row => row.task_id);
-
-
-                //새로 추천 가능한 작업
-                const remainingTasks = tasks.filter(task =>
-                    !excludedIds.includes(task.id)
-                );
-
-                const needCount = 3 - existingTasks.length;
-
-                const additionalTasks = remainingTasks.slice(0, needCount);
-
-                additionalTasks.forEach(task => {
-
-                    db.run(
-                        `
-                        INSERT INTO daily_recommendations (
-                            user_id,
-                            task_id,
-                            recommend_date
-                        )
-                        VALUES (?, ?, ?)
-                        `,
-                        [
-                            userId,
-                            task.id,
-                            today
-                        ]
-                    );
-
-                });
-
-                const finalTasks = existingTasks.concat(additionalTasks);
-
-                return res.json(finalTasks);
-
-            }
-
-            // 오늘 추천이 없으면 저장
-            recommendedTasks.forEach(task => {
-
-                db.run(
+                db.get(
                     `
-                    INSERT INTO daily_recommendations (
-                        user_id,
-                        task_id,
-                        recommend_date
-                    )
-                    VALUES (?, ?, ?)
+                    SELECT *
+                    FROM tasks
+                    WHERE user_id = ?
+                    AND recommended_date = ?
+                    AND is_completed = 1
+                    LIMIT 1
                     `,
                     [
-                        userId,
-                        task.id,
-                        today
-                    ]
-                );
-
-            });
-
-            res.json(recommendedTasks);
-
-        });
-
-    });
-
-});
-
-// 추천 기록 조회 API
-app.get('/recommendations', (req, res) => {
-
-    const sql = `
-        SELECT *
-        FROM daily_recommendations
-    `;
-
-    db.all(sql, [], (err, rows) => {
-
-        if (err) {
-
-            return res.status(500).json({
-                message: '조회 실패'
-            });
-
-        }
-
-        res.json(rows);
-
-    });
-
-});
-// =====================================
-// 구버전 API
-// 현재는 /daily-check/:userId 사용
-// 추후 삭제 예정
-// =====================================
-// 연속달성 판정 API
-app.post('/check-streak/:userId', (req, res) => {
-
-    const { userId } = req.params;
-
-    const today =
-        new Date().toISOString().split('T')[0];
-
-    db.all(
-        `
-        SELECT *
-        FROM tasks
-        WHERE user_id = ?
-        AND is_completed = 0
-        AND deadline_date < ?
-        `,
-        [userId, today],
-        (err, overdueTasks) => {
-
-            if (err) {
-
-                return res.status(500).json({
-                    message: '판정 실패'
-                });
-
-            }
-
-            db.get(
-                `
-                SELECT *
-                FROM users
-                WHERE id = ?
-                `,
-                [userId],
-                (err, user) => {
-
-                    if (overdueTasks.length === 0) {
-
-                        const newStreak =
-                            user.streak_count + 1;
-let newShield = user.shield_count;
-
-if (
-    newStreak % 7 === 0 &&
-    newShield < 3
-) {
-    newShield++;
-}
-
-                        db.run(
-                            `
-                            UPDATE users
-                            SET streak_count = ?,
-                                best_streak = ?,
-                                shield_count = ?
-                            WHERE id = ?
-                            `,
-                            [
-                                newStreak,
-                                Math.max(
-                                    newStreak,
-                                    user.best_streak
-                                ),
-                                newShield,
-                                userId
-                            ]
-                        );
-
-                        return res.json({
-                            message: '연속달성 성공',
-                            streak_count: newStreak,
-                            shield_count: newShield
-                        });
-
-                    }
-
-                    if (user.shield_count > 0) {
-
-                        db.run(
-                            `
-                            UPDATE users
-                            SET shield_count =
-                                shield_count - 1
-                            WHERE id = ?
-                            `,
-                            [userId]
-                        );
-
-                        return res.json({
-                            message:
-                                '방어권 사용',
-                            shield_left:
-                                user.shield_count - 1
-                        });
-
-                    }
-
-                    db.run(
-                        `
-                        UPDATE users
-                        SET streak_count = 0
-                        WHERE id = ?
-                        `,
-                        [userId]
-                    );
-
-                    res.json({
-                        message:
-                            '연속달성 실패',
-                        streak_count: 0
-                    });
-
-                }
-            );
-
-        }
-    );
-
-});
-
-// 오늘 성공 판정 API
-app.post('/check-today-success/:userId', (req, res) => {
-
-    const { userId } = req.params;
-
-    const today =
-        new Date().toISOString().split('T')[0];
-
-    db.all(
-        `
-        SELECT t.*, d.is_postponed
-        FROM daily_recommendations d
-        JOIN tasks t
-        ON d.task_id = t.id
-        WHERE d.user_id = ?
-        AND d.recommend_date = ?
-        `,
-        [userId, today],
-        (err, recommendedTasks) => {
-
-            if (err) {
-
-                return res.status(500).json({
-                    message: '판정 실패'
-                });
-
-            }
-
-            const activeTasks = 
-                recommendedTasks.filter(task =>
-                    task.is_postponed === 0
-                );
-
-            // 오늘 마감 추천 할 일 찾기
-            const todayDeadlineTasks =
-                activeTasks.filter(task =>
-                    task.deadline_date === today
-                );
-
-            // 오늘 마감 추천이 존재하는 경우
-            if (todayDeadlineTasks.length > 0) {
-
-                const allCompleted =
-                    todayDeadlineTasks.every(task =>
-                        task.is_completed === 1
-                    );
-
-                return res.json({
-                    success: allCompleted,
-                    reason: allCompleted
-                        ? '오늘 마감 추천 할 일 완료'
-                        : '오늘 마감 추천 할 일이 남아있음'
-                });
-
-            }
-
-            //추천 가능한 할 일이 없는 경우
-            if (activeTasks.length === 0) {
-
-                return res.json({
-                    success: true,
-                    reason: '추천 할 일 없어 자동 성공'
-                });
-            }
-            
-            // 오늘 마감 추천이 없는 경우
-            const anyCompleted =
-                activeTasks.some(task =>
-                    task.is_completed === 1
-                );
-
-            res.json({
-                success: anyCompleted,
-                reason: anyCompleted
-                    ? '추천 할 일 완료'
-                    : '추천 할 일 미완료'
-            });
-
-        }
-
-    );
-
-});
-
-// 하루 최종 판정 API
-app.post('/daily-check/:userId', (req, res) => {
-
-    const { userId } = req.params;
-
-    const today =
-        new Date().toISOString().split('T')[0];
-
-    // 오늘 추천 목록 조회
-    db.all(
-        `
-        SELECT t.*
-        FROM daily_recommendations d
-        JOIN tasks t
-        ON d.task_id = t.id
-        WHERE d.user_id = ?
-        AND d.recommend_date = ?
-        `,
-        [userId, today],
-        (err, recommendedTasks) => {
-
-            if (err) {
-
-                return res.status(500).json({
-                    message: '판정 실패'
-                });
-
-            }
-
-            let success = false;
-
-            // 오늘 마감 추천 찾기
-            const todayDeadlineTasks =
-                recommendedTasks.filter(task =>
-                    task.deadline_date === today
-                );
-
-            // 오늘 마감 추천 존재
-            if (todayDeadlineTasks.length > 0) {
-
-                success =
-                    todayDeadlineTasks.every(task =>
-                        task.is_completed === 1
-                    );
-
-            }
-            else {
-
-                // 추천 TOP3 중 하나 완료
-                success =
-                    recommendedTasks.some(task =>
-                        task.is_completed === 1
-                    );
-
-            }
-
-            // 사용자 조회
-            db.get(
-                `
-                SELECT *
-                FROM users
-                WHERE id = ?
-                `,
-                [userId],
-                (err, user) => {
-
-                    if (err || !user) {
-
-                        return res.status(404).json({
-                            message: '사용자 없음'
-                        });
-
-                    }
-
-                    // 성공
-                    if (success) {
-
-                        const newStreak =
-                            user.streak_count + 1;
-
-                        let newShield =
-                            user.shield_count;
-
-                        // 7일마다 방어권 지급
-                        if (
-                            newStreak % 7 === 0 &&
-                            newShield < 3
-                        ) {
-                            newShield++;
+                        user_id,
+                         today
+                    ],
+                    (taskErr, task) => {
+
+                        if (taskErr) {
+                            return res.status(500).json({
+                                success: false,
+                                message: taskErr.message
+                            });
                         }
 
-                        const newBest =
-                            Math.max(
-                                newStreak,
-                                user.best_streak
-                            );
+                        if (!task) {
+                            return res.json({
+                                success: false,
+                                completed: false
+                            });
+                        }
+
+                        const nextStreak =
+                          user.streak_count + 1;
+
+                        let rewardShield = false;
+
+                        if (
+                          nextStreak % 7 === 0 &&
+                          nextStreak >
+                          user.last_shield_reward_streak
+                        ) {
+                          rewardShield = true;
+                        }
 
                         db.run(
                             `
                             UPDATE users
                             SET
-                                streak_count = ?,
-                                best_streak = ?,
-                                shield_count = ?
+                                today_success = 1,
+                                today_success_date = ?,
+
+                                streak_count = streak_count + 1,
+
+                                shield_count =
+                                CASE
+                                    WHEN ? = 1
+                                    THEN shield_count + 1
+                                    ELSE shield_count
+                                END,
+
+                                last_shield_reward_streak =
+                                CASE
+                                    WHEN ? = 1
+                                    THEN ?
+                                    ELSE last_shield_reward_streak
+                                END,
+
+                                best_streak =
+                                CASE
+                                    WHEN streak_count + 1 > best_streak
+                                    THEN streak_count + 1
+                                    ELSE best_streak
+                                END
                             WHERE id = ?
                             `,
                             [
-                                newStreak,
-                                newBest,
-                                newShield,
-                                userId
+                                today,
+
+                                rewardShield ? 1 : 0,
+
+                                rewardShield ? 1 : 0,
+                                nextStreak,
+
+                                user_id
                             ],
-                            () => {
+                            (updateErr) => {
+
+                                if (updateErr) {
+                                    return res.status(500).json({
+                                        success: false,
+                                        message:
+                                            updateErr.message
+                                    });
+                                }
 
                                 res.json({
                                     success: true,
-                                    message: '연속달성 성공',
-                                    streak_count: newStreak,
-                                    shield_count: newShield
+                                    completed: true
                                 });
-
                             }
                         );
-
-                        return;
                     }
+                );
+            }
+        );
+    }
+);
 
-                    // 실패 + 방어권 있음
-                    if (user.shield_count > 0) {
+/*
+====================================
+4. 할 일 삭제
+DELETE /tasks/:id
+====================================
+*/
+app.delete("/tasks/:id", (req, res) => {
+  const taskId = req.params.id;
 
-                        db.run(
-                            `
-                            UPDATE users
-                            SET shield_count =
-                                shield_count - 1
-                            WHERE id = ?
-                            `,
-                            [userId],
-                            () => {
+  db.run(
+    `
+    DELETE FROM tasks
+    WHERE id = ?
+    `,
+    [taskId],
+    function (err) {
+      if (err) {
+        return res.status(500).json({
+          success: false,
+          message: err.message,
+        });
+      }
 
-                                res.json({
-                                    success: false,
-                                    message: '방어권 사용',
-                                    streak_count:
-                                        user.streak_count,
-                                    shield_count:
-                                        user.shield_count - 1
-                                });
+      res.json({
+        success: true,
+        deleted: this.changes,
+      });
+    }
+  );
+});
 
-                            }
-                        );
+/*
+====================================
+테스트용 유저 수정
+POST /debug/set-user
+====================================
+*/
+app.post("/debug/set-user", (req, res) => {
 
-                        return;
-                    }
+    const {
+        user_id,
+        streak_count,
+        shield_count,
+        today_success
+    } = req.body;
 
-                    // 실패 + 방어권 없음
-                    db.run(
-                        `
-                        UPDATE users
-                        SET streak_count = 0
-                        WHERE id = ?
-                        `,
-                        [userId],
-                        () => {
+    db.run(
+        `
+        UPDATE users
+        SET
+            streak_count = ?,
+            shield_count = ?,
+            today_success = ?
+        WHERE id = ?
+        `,
+        [
+            streak_count,
+            shield_count,
+            today_success,
+            user_id
+        ],
+        function(err) {
 
-                            res.json({
-                                success: false,
-                                message:
-                                    '연속달성 실패',
-                                streak_count: 0,
-                                shield_count: 0
-                            });
+            if (err) {
+                return res.status(500).json({
+                    success: false,
+                    message: err.message
+                });
+            }
 
-                        }
-                    );
-
-                }
-            );
-
+            res.json({
+                success: true,
+                updated: this.changes
+            });
         }
-
     );
+});
 
+/*
+====================================
+테스트용 로그인 상태 수정
+POST /debug/set-login-state
+====================================
+*/
+app.post("/debug/set-login-state", (req, res) => {
+
+    const {
+        user_id,
+        today_success,
+        today_success_date,
+        last_streak_check_date
+    } = req.body;
+
+    db.run(
+        `
+        UPDATE users
+        SET
+            today_success = ?,
+            today_success_date = ?,
+            last_streak_check_date = ?
+        WHERE id = ?
+        `,
+        [
+            today_success,
+            today_success_date,
+            last_streak_check_date,
+            user_id
+        ],
+        function(err) {
+
+            if (err) {
+                return res.status(500).json({
+                    success: false,
+                    message: err.message
+                });
+            }
+
+            res.json({
+                success: true,
+                updated: this.changes
+            });
+        }
+    );
+});
+
+/*
+====================================
+테스트용 유저 조회
+GET /debug/user?user_id=1
+====================================
+*/
+app.get("/debug/user", (req, res) => {
+
+    const userId = req.query.user_id;
+
+    db.get(
+        `
+        SELECT *
+        FROM users
+        WHERE id = ?
+        `,
+        [userId],
+        (err, user) => {
+
+            if (err) {
+                return res.status(500).json({
+                    success: false,
+                    message: err.message
+                });
+            }
+
+            if (!user) {
+                return res.status(404).json({
+                    success: false,
+                    message: "사용자를 찾을 수 없습니다."
+                });
+            }
+
+            res.json({
+                success: true,
+                user
+            });
+        }
+    );
+});
+
+/*
+====================================
+테스트용 전체 할일 삭제
+DELETE /debug/tasks?user_id=1
+====================================
+*/
+app.delete("/debug/tasks", (req, res) => {
+
+    const userId = req.query.user_id;
+
+    db.run(
+        `
+        DELETE FROM tasks
+        WHERE user_id = ?
+        `,
+        [userId],
+        function(err) {
+
+            if (err) {
+                return res.status(500).json({
+                    success: false,
+                    message: err.message
+                });
+            }
+
+            res.json({
+                success: true,
+                deleted: this.changes
+            });
+        }
+    );
 });
 
 app.listen(3000, () => {
-    console.log('서버 실행 중!');
+    console.log("서버 실행 중");
 });
