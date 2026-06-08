@@ -7,18 +7,15 @@ import { createStackNavigator } from '@react-navigation/stack';
 import LinearGradient from 'react-native-linear-gradient';
 import Svg, { Defs, Pattern, Rect, Path as SvgPath } from 'react-native-svg';
 
-// 만든 스크린 불러오기
 import LoginScreen from './LoginScreen';
 import TaskScreen from './TaskScreen'; 
-import CalendarScreen from './CalendarScreen'; // 💡 캘린더 스크린 연결 완료!
+import CalendarScreen from './CalendarScreen'; 
 
-// 🚨 임시 화면 컴포넌트 (나중에 메인 화면 만들 때 수정)
 const MainScreen = () => <View style={{ flex: 1 }} />;
 
 const Tab = createMaterialTopTabNavigator();
 const Stack = createStackNavigator();
 
-// 🎨 우유빛 유리 질감 커스텀 탑바
 const CustomTopTabBar = ({ state, descriptors, navigation }: any) => {
   return (
     <SafeAreaView style={customTabStyles.safeArea}>
@@ -93,7 +90,7 @@ const ServiceScreen = () => (
       </Svg>
     </View>
 
-    {/* 탭 네비게이터 */}
+    {/* 💡 에러의 원인이었던 sceneContainerStyle 줄을 삭제했습니다! */}
     <Tab.Navigator
       initialRouteName="메인화면"
       tabBar={(props: any) => <CustomTopTabBar {...props} />}
@@ -107,7 +104,6 @@ const ServiceScreen = () => (
   </View>
 );
 
-// 🚀 최상단 App 컴포넌트
 export default function App() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
 
@@ -130,8 +126,6 @@ export default function App() {
   );
 }
 
-// --- 스타일 섹션 ---
-
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -140,54 +134,12 @@ const styles = StyleSheet.create({
 });
 
 const customTabStyles = StyleSheet.create({
-  safeArea: {
-    backgroundColor: 'transparent',
-  },
-  wrapper: {
-    backgroundColor: 'transparent',
-    paddingTop: Platform.OS === 'ios' ? 10 : 30,
-    paddingBottom: 15,
-    alignItems: 'center',
-  },
-  glassContainer: {
-    flexDirection: 'row',
-    width: '90%',
-    height: 52,
-    borderRadius: 26,
-    padding: 6,
-    shadowColor: '#000000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 10,
-    elevation: 5,
-  },
-  tabButton: {
-    flex: 1,
-  },
-  activeTab: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderRadius: 20,
-    shadowColor: '#fca17d',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.4,
-    shadowRadius: 4,
-  },
-  inactiveTab: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderRadius: 20,
-  },
-  activeTabText: {
-    fontFamily: 'Galmuri9',
-    fontSize: 15,
-    color: '#ffffff',
-  },
-  inactiveTabText: {
-    fontFamily: 'Galmuri9',
-    fontSize: 15,
-    color: '#a0a0a0',
-  }
+  safeArea: { backgroundColor: 'transparent' },
+  wrapper: { backgroundColor: 'transparent', paddingTop: Platform.OS === 'ios' ? 10 : 30, paddingBottom: 15, alignItems: 'center' },
+  glassContainer: { flexDirection: 'row', width: '90%', height: 52, borderRadius: 26, padding: 6, shadowColor: '#000000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.1, shadowRadius: 10, elevation: 5 },
+  tabButton: { flex: 1 },
+  activeTab: { flex: 1, justifyContent: 'center', alignItems: 'center', borderRadius: 20, shadowColor: '#fca17d', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.4, shadowRadius: 4 },
+  inactiveTab: { flex: 1, justifyContent: 'center', alignItems: 'center', borderRadius: 20 },
+  activeTabText: { fontFamily: 'Galmuri9', fontSize: 15, color: '#ffffff' },
+  inactiveTabText: { fontFamily: 'Galmuri9', fontSize: 15, color: '#a0a0a0' }
 });
