@@ -18,7 +18,7 @@ const CONDITION_COLORS = { '침대에게 승리': '#5a9aff', '침대와 협상 �
 const CONDITION_EMOJIS = { 
   '침대에게 승리': 'ദ്ദി(៸៸ > ᴗ < ៸៸)', 
   '침대와 협상 중': '( ᖛ ̫ ᖛ )', 
-  '침대에게 패배': '( ⩌﹏⩌)' 
+  '침대에게 패배': '(⩌﹏⩌)' 
 };
 
 const SERVER_URL = Platform.OS === 'android' ? 'http://10.0.2.2:3000' : 'http://localhost:3000';
@@ -38,11 +38,13 @@ export default function MainScreen({ activeCategory, setActiveCategory, category
         const savedDate = await AsyncStorage.getItem('conditionDate');
         const savedCondition = await AsyncStorage.getItem('conditionValue');
 
+        // 💡 [배포 모드] 오늘 기록이 있으면 화면에 표시, 없는데 7시 이후라면 팝업 띄우기
         if (savedDate === todayString && savedCondition) {
           setTodayCondition(savedCondition);
         } else if (currentHour >= 7) {
           setConditionModalVisible(true);
         }
+        
       } catch (error) {
         console.error("컨디션 확인 에러:", error);
       }
@@ -177,10 +179,11 @@ const styles = StyleSheet.create({
   
   logoutBtn: { padding: 20, alignItems: 'center', marginBottom: 20 },
   logoutText: { fontFamily: 'Galmuri9', fontSize: 14, color: '#a0a0a0', textDecorationLine: 'underline' },
+  
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center', alignItems: 'center' },
   conditionModalBox: { backgroundColor: '#2c2c2e', padding: 25, borderRadius: 16, width: '70%', alignItems: 'center' },
   conditionModalTitle: { fontFamily: 'Galmuri9', fontSize: 14, color: '#fff', marginBottom: 25, textAlign: 'center', lineHeight: 20 },
   conditionBtnGroup: { flexDirection: 'column', gap: 20, width: '100%' }, 
   conditionBtn: { paddingVertical: 8, width: '100%', alignItems: 'center' },
-  conditionBtnText: { fontFamily: 'Galmuri9', fontSize: 15, textDecorationLine: 'underline' }
+  conditionBtnText: { fontFamily: 'Galmuri9', fontSize: 14, textDecorationLine: 'underline' }
 });

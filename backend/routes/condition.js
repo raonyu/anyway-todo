@@ -5,11 +5,11 @@ const router = express.Router();
 
 /*
 ====================================
-오늘 컨디션 저장
-POST /condition
+1. 오늘 컨디션 저장 / 업데이트
+PUT /condition
 ====================================
 */
-router.post("/condition", (req, res) => {
+router.put("/condition", (req, res) => {
 
     const {
         user_id,
@@ -17,14 +17,15 @@ router.post("/condition", (req, res) => {
     } = req.body;
 
     const allowedConditions = [
-    "교수님도 이겨",
-    "출석만 함",
-    "휴학마려움"
+        "침대에게 승리",
+        "침대와 협상 중",
+        "침대에게 패배"
     ];
 
-    const finalCondition =
-        condition || "출석만 함";
+    // 값이 안 넘어왔을 때의 기본값
+    const finalCondition = condition || "침대와 협상 중";
 
+    // 허용되지 않은 텍스트가 들어오면 차단
     if (!allowedConditions.includes(finalCondition)) {
         return res.status(400).json({
             success: false,
@@ -32,10 +33,7 @@ router.post("/condition", (req, res) => {
         });
     }
 
-    const today =
-        new Date()
-            .toISOString()
-            .split("T")[0];
+    const today = new Date().toISOString().split("T")[0];
 
     db.run(
         `
@@ -51,7 +49,6 @@ router.post("/condition", (req, res) => {
             user_id
         ],
         function(err) {
-
             if (err) {
                 return res.status(500).json({
                     success: false,
@@ -61,6 +58,7 @@ router.post("/condition", (req, res) => {
 
             res.json({
                 success: true,
+                message: "오늘의 컨디션이 성공적으로 저장되었습니다.",
                 condition: finalCondition,
                 date: today
             });
@@ -70,19 +68,15 @@ router.post("/condition", (req, res) => {
 
 /*
 ====================================
-오늘 컨디션 입력 필요 여부
+2. 오늘 컨디션 입력 필요 여부 (추후 알고리즘용)
 GET /condition/check
 ====================================
 */
 router.get("/condition/check", (req, res) => {
 
-    const userId =
-        req.query.user_id;
+    const userId = req.query.user_id;
 
-    const today =
-        new Date()
-            .toISOString()
-            .split("T")[0];
+    const today = new Date().toISOString().split("T")[0];
 
     db.get(
         `
@@ -109,16 +103,12 @@ router.get("/condition/check", (req, res) => {
                 });
             }
 
-            const needCondition =
-                user.today_condition_date !== today;
+            const needCondition = user.today_condition_date !== today;
 
             res.json({
                 success: true,
                 need_condition: needCondition,
-                today_condition:
-                    needCondition
-                        ? null
-                        : user.today_condition
+                today_condition: needCondition ? null : user.today_condition
             });
         }
     );
