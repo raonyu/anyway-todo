@@ -267,7 +267,7 @@ router.post("/recommendations/generate", (req, res) => {
 
     generateRecommendations(
         user_id,
-        (err, tasks) => {
+        (err, result) => {
 
             if (err) {
                 return res.status(500).json({

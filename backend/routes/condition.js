@@ -22,9 +22,9 @@ router.post("/condition", (req, res) => {
     } = req.body;
 
     const allowedConditions = [
-    "침대에게 승리",
-    "침대와 협상 중",
-    "침대에게 패배"
+        "침대에게 승리",
+        "침대와 협상 중",
+        "침대에게 패배"
     ];
 
     const finalCondition =

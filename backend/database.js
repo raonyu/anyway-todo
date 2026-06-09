@@ -9,22 +9,16 @@ const db = new sqlite3.Database("./todo.db", (err) => {
     db.run(`
       CREATE TABLE IF NOT EXISTS users (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-
         username TEXT UNIQUE NOT NULL,
         password TEXT NOT NULL,
-
         streak_count INTEGER DEFAULT 0,
         best_streak INTEGER DEFAULT 0,
         shield_count INTEGER DEFAULT 1,
-
         today_success INTEGER DEFAULT 0,
         today_success_date TEXT,
-
         last_shield_reward_streak INTEGER DEFAULT 0,
-
         today_condition TEXT,
         today_condition_date TEXT,
-
         last_login_date TEXT,
         last_streak_check_date TEXT
       )
@@ -39,14 +33,15 @@ const db = new sqlite3.Database("./todo.db", (err) => {
         deadline_date TEXT,
         deadline_time TEXT,
         quadrant TEXT NOT NULL,
-
+        
         category TEXT DEFAULT '개인',
 
         delay_count INTEGER DEFAULT 0,
         is_completed INTEGER DEFAULT 0,
-
+        status TEXT DEFAULT '진행 전',
         recommended_today INTEGER DEFAULT 0,
         recommended_date TEXT,
+
 
         created_at TEXT,
         completed_date TEXT,
@@ -140,6 +135,10 @@ const db = new sqlite3.Database("./todo.db", (err) => {
       ALTER TABLE schedules
       ADD COLUMN is_completed INTEGER DEFAULT 0
     `, (err) => {});
+
+    db.run(`ALTER TABLE tasks 
+      ADD COLUMN status TEXT DEFAULT '진행 전'
+      `, (err) => {});
   }
 });
 

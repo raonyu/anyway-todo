@@ -15,7 +15,7 @@ const router = express.Router();
 /*
 ====================================
 1. 할 일 목록 조회
-GET /tasks?user_id=1
+GET /tasks?user_id=1&category=개인
 ====================================
 */
 router.get("/tasks", (req, res) => {
@@ -67,8 +67,7 @@ GET /tasks/quadrant?user_id=1&category=학업
 */
 router.get("/tasks/quadrant", (req, res) => {
 
-    const userId =
-        req.query.user_id;
+    const userId = req.query.user_id;
 
     const category =
         req.query.category;
@@ -289,7 +288,6 @@ router.post("/tasks", (req, res) => {
         deadline_date,
         deadline_time,
         quadrant,
-
         category
     } = req.body;
 
@@ -402,197 +400,6 @@ router.post("/tasks", (req, res) => {
 PUT /tasks/:id
 ====================================
 */
-router.put("/tasks/:id", (req, res) => {
-
-    const taskId = req.params.id;
-
-    const {
-        user_id,
-        title,
-        memo,
-        deadline_date,
-        deadline_time,
-        quadrant,
-        category,
-        is_completed
-    } = req.body;
-
-    const allowedCategories = [
-        "학업",
-        "개인",
-        "성장"
-    ];
-
-    const finalCategory =
-        category || "개인";
-
-    if (!allowedCategories.includes(finalCategory)) {
-        return res.status(400).json({
-            success: false,
-            message: "올바르지 않은 카테고리 값입니다."
-        });
-    }
-
-    db.run(
-        `
-        UPDATE tasks
-        SET
-            title = ?,
-            memo = ?,
-            deadline_date = ?,
-            deadline_time = ?,
-            quadrant = ?,
-            category = ?,
-            is_completed = ?,
-            completed_date =
-                CASE
-                    WHEN ? = 1 THEN ?
-                    ELSE completed_date
-                END
-        WHERE id = ?
-        `,
-        [
-            title,
-            memo,
-            deadline_date,
-            deadline_time,
-            quadrant,
-            finalCategory,
-            is_completed ? 1 : 0,
-            is_completed ? 1 : 0,
-            getAppDate(),
-            taskId
-        ],
-        function (err) {
-
-            if (err) {
-                return res.status(500).json({
-                    success: false,
-                    message: err.message,
-                });
-            }
-
-            if (is_completed) {
-
-                db.get(
-                    `
-                    SELECT *
-                    FROM tasks
-                    WHERE id = ?
-                    `,
-                    [taskId],
-                    (taskErr, task) => {
-
-                        if (
-                            !taskErr &&
-                            task &&
-                            task.recommended_today === 1
-                        ) {
-
-                            db.get(
-                                `
-                                SELECT *
-                                FROM users
-                                WHERE id = ?
-                                `,
-                                [user_id],
-                                (userErr, user) => {
-
-                                    const today =
-                                        getAppDate();
-
-                                    if (
-                                        !userErr &&
-                                        user &&
-                                        !(
-                                            user.today_success === 1 &&
-                                            user.today_success_date === today
-                                        )
-                                    ) {
-
-                                        const nextStreak =
-                                            user.streak_count + 1;
-
-                                        let rewardShield = false;
-
-                                        if (
-                                            nextStreak % 7 === 0 &&
-                                            nextStreak >
-                                            user.last_shield_reward_streak
-                                        ) {
-                                            rewardShield = true;
-                                        }
-
-                                        db.run(
-                                            `
-                                            UPDATE users
-                                            SET
-                                                today_success = 1,
-                                                today_success_date = ?,
-
-                                                streak_count = streak_count + 1,
-
-                                                shield_count =
-                                                CASE
-                                                    WHEN ? = 1
-                                                    THEN shield_count + 1
-                                                    ELSE shield_count
-                                                END,
-
-                                                last_shield_reward_streak =
-                                                CASE
-                                                    WHEN ? = 1
-                                                    THEN ?
-                                                    ELSE last_shield_reward_streak
-                                                END,
-
-                                                best_streak =
-                                                CASE
-                                                    WHEN streak_count + 1 > best_streak
-                                                    THEN streak_count + 1
-                                                    ELSE best_streak
-                                                END
-                                            WHERE id = ?
-                                            `,
-                                            [
-                                                today,
-
-                                                rewardShield ? 1 : 0,
-
-                                                rewardShield ? 1 : 0,
-                                                nextStreak,
-
-                                                user_id
-                                            ]
-                                        );
-                                    }
-                                }
-                            );
-                        }
-                    }
-                );
-            }
-
-            generateRecommendations(
-                user_id,
-                (recommendErr) => {
-                    if (recommendErr) {
-                        return res.status(500).json({
-                            success:false,
-                            message: recommendErr.message
-                        });
-                    }
-
-                    res.json({
-                        success: true,
-                        updated: this.changes
-                    });
-                }
-            );
-        }
-    );
-});
-
 router.put("/tasks/:id", (req, res) => {
 
     const taskId = req.params.id;

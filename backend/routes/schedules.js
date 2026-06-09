@@ -243,6 +243,7 @@ router.put("/schedules/:id", (req, res) => {
             quadrant = ?,
             is_completed = ?
         WHERE id = ?
+        AND user_id = ?
         `,
         [
             title,
@@ -287,6 +288,7 @@ router.delete("/schedules/:id", (req, res) => {
         `
         DELETE FROM schedules
         WHERE id = ?
+        AND user_id = ?
         `,
         [scheduleId],
         function(err) {

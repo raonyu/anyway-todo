@@ -164,7 +164,7 @@ router.get("/tasks/:id/success-rate", (req, res) => {
                 WHERE user_id = ?
                 AND id != ?
                 AND category = ?
-                AND quadrant = ?,
+                AND quadrant = ?
                 AND created_at IS NOT NULL
                 AND deadline_date IS NOT NULL
                 `,
