@@ -56,14 +56,15 @@ const CustomTopTabBar = ({ state, descriptors, navigation, categoryConfig }: any
   );
 };
 
-const ServiceScreen = () => {
+// ServiceScreen이 setIsLoggedIn을 props로 받도록 수정
+const ServiceScreen = ({ setIsLoggedIn }: { setIsLoggedIn: (status: boolean) => void }) => {
   const [activeCategory, setActiveCategory] = useState<'개인' | '학업' | '성장'>('개인');
 
   const sharedProps = {
     activeCategory,
     setActiveCategory,
-    categoryConfig: CATEGORY_CONFIG[activeCategory]
-    setIsLoggedIn
+    categoryConfig: CATEGORY_CONFIG[activeCategory],
+    setIsLoggedIn 
   };
 
   return (
@@ -95,37 +96,38 @@ const ServiceScreen = () => {
 
 export default function App() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
-  const [isCheckingLogin, setIsCheckingLogin] = useState(true); // 앱 켤 때 로딩 상태
+  const [isCheckingLogin, setIsCheckingLogin] = useState(true);
 
-  // 앱이 처음 켜질 때 로컬 저장소를 확인하는 함수
   useEffect(() => {
     const checkLoginStatus = async () => {
       try {
         const token = await AsyncStorage.getItem('userToken');
         if (token) {
-          setIsLoggedIn(true); // 토큰이 있으면 바로 로그인 통과
+          setIsLoggedIn(true);
         }
       } catch (error) {
-        console.error('로그인 상태 확인 에러:', error);
+        console.error('로그인 확인 에러:', error);
       } finally {
-        setIsCheckingLogin(false); // 확인 완료
+        setIsCheckingLogin(false);
       }
     };
     checkLoginStatus();
   }, []);
 
-  const handleLoginSuccess = () => setIsLoggedIn(true);
-
-  // 데이터를 확인할 때까지는 아무것도 안 보여줌 (혹은 스플래시 화면 렌더링)
-  if (isCheckingLogin) return null;
+  if (isCheckingLogin) return null; // 로딩 중 빈 화면
 
   return (
     <NavigationContainer>
       <Stack.Navigator screenOptions={{ headerShown: false }}>
         {isLoggedIn ? (
-          <Stack.Screen name="Service" component={ServiceScreen} />
+          <Stack.Screen name="Service">
+            {/* ServiceScreen에 setIsLoggedIn 함수 넘겨주기 */}
+            {(props) => <ServiceScreen {...props} setIsLoggedIn={setIsLoggedIn} />}
+          </Stack.Screen>
         ) : (
-          <Stack.Screen name="Login">{(props: any) => <LoginScreen {...props} onLoginSuccess={() => setIsLoggedIn(true)} />}</Stack.Screen>
+          <Stack.Screen name="Login">
+            {(props: any) => <LoginScreen {...props} onLoginSuccess={() => setIsLoggedIn(true)} />}
+          </Stack.Screen>
         )}
       </Stack.Navigator>
     </NavigationContainer>
@@ -138,7 +140,7 @@ const styles = StyleSheet.create({
 
 const customTabStyles = StyleSheet.create({
   safeArea: { backgroundColor: 'transparent' },
-  wrapper: { backgroundColor: 'transparent', paddingTop: Platform.OS === 'ios' ? 20 : 30, paddingBottom: 20, alignItems: 'center' },
+  wrapper: { backgroundColor: 'transparent', paddingTop: Platform.OS === 'ios' ? 50 : 30, paddingBottom: 20, alignItems: 'center' },
   glassContainer: { flexDirection: 'row', width: '90%', height: 52, borderRadius: 26, padding: 6, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.1, shadowRadius: 10, elevation: 5 },
   tabButton: { flex: 1 },
   activeTab: { flex: 1, justifyContent: 'center', alignItems: 'center', borderRadius: 20, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 4 },

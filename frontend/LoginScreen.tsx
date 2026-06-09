@@ -1,4 +1,4 @@
-import AsyncStorage from '@react-native-async-storage/async-storage'; // 💡 로컬 저장소 추가
+import AsyncStorage from '@react-native-async-storage/async-storage'; // 로컬 저장소 추가
 import React, { useState, useEffect } from 'react';
 import {
   StyleSheet,
@@ -57,7 +57,7 @@ export default function LoginScreen({ onLoginSuccess }: { onLoginSuccess: () => 
 
       if (response.ok) {
         if (viewMode === 'login') {
-          // 💡 로그인 성공 시 스마트폰에 'userToken'이라는 징표를 남김!
+          // 로그인 성공 시 스마트폰에 'userToken'이라는 징표를 남김
           try {
             await AsyncStorage.setItem('userToken', 'logged_in_user_token');
           } catch (e) {

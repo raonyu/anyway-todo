@@ -24,7 +24,6 @@ const db = new sqlite3.Database("./todo.db", (err) => {
       )
     `);
 
-    // 💡 tasks 테이블에 status와 category 컬럼 기본 구성
     db.run(`
       CREATE TABLE IF NOT EXISTS tasks (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -96,7 +95,6 @@ const db = new sqlite3.Database("./todo.db", (err) => {
       ADD COLUMN difficulty TEXT DEFAULT '보통'
     `, (err) => {});
 
-    // 💡 안전하게 기존 데이터베이스에 status와 category 컬럼 추가 (에러 무시)
     db.run(`ALTER TABLE tasks ADD COLUMN status TEXT DEFAULT '진행 전'`, (err) => {});
     db.run(`ALTER TABLE tasks ADD COLUMN category TEXT DEFAULT '개인'`, (err) => {});
   }
