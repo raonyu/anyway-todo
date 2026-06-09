@@ -6,12 +6,12 @@ const conditionRoutes = require("./routes/condition");
 const taskRoutes = require("./routes/tasks");
 const streakRoutes = require("./routes/streak");
 const debugRoutes = require("./routes/debug");
+const successRateRoutes = require("./routes/successRate");
+const scheduleRoutes = require("./routes/schedules");
 
 const {
     router: recommendationRoutes
 } = require("./routes/recommendations");
-
-
 
 const app = express();
 app.use(express.json());
@@ -34,6 +34,12 @@ app.use(streakRoutes);
 
 //debug.js 연결
 app.use(debugRoutes);
+
+//schedules.js 연결
+app.use(scheduleRoutes);
+
+//successRate.js 연결
+app.use(successRateRoutes);
 
 app.listen(3000, () => {
     console.log("서버 실행 중");

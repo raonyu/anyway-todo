@@ -9,16 +9,22 @@ const db = new sqlite3.Database("./todo.db", (err) => {
     db.run(`
       CREATE TABLE IF NOT EXISTS users (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
+
         username TEXT UNIQUE NOT NULL,
         password TEXT NOT NULL,
+
         streak_count INTEGER DEFAULT 0,
         best_streak INTEGER DEFAULT 0,
         shield_count INTEGER DEFAULT 1,
+
         today_success INTEGER DEFAULT 0,
         today_success_date TEXT,
+
         last_shield_reward_streak INTEGER DEFAULT 0,
+
         today_condition TEXT,
         today_condition_date TEXT,
+
         last_login_date TEXT,
         last_streak_check_date TEXT
       )
@@ -33,13 +39,18 @@ const db = new sqlite3.Database("./todo.db", (err) => {
         deadline_date TEXT,
         deadline_time TEXT,
         quadrant TEXT NOT NULL,
-        difficulty TEXT DEFAULT '보통',
+
+        category TEXT DEFAULT '개인',
+
         delay_count INTEGER DEFAULT 0,
         is_completed INTEGER DEFAULT 0,
-        status TEXT DEFAULT '진행 전',
-        category TEXT DEFAULT '개인',
+
         recommended_today INTEGER DEFAULT 0,
         recommended_date TEXT,
+
+        created_at TEXT,
+        completed_date TEXT,
+
         postponed_today INTEGER DEFAULT 0,
         postponed_date TEXT
       )
@@ -52,12 +63,17 @@ const db = new sqlite3.Database("./todo.db", (err) => {
         user_id INTEGER NOT NULL,
 
         title TEXT NOT NULL,
+        memo TEXT,
 
         schedule_date TEXT NOT NULL,
 
         start_time TEXT NOT NULL,
-
         end_time TEXT NOT NULL,
+
+        category TEXT DEFAULT '개인',
+        quadrant TEXT DEFAULT '나중에 해',
+
+        is_completed INTEGER DEFAULT 0,
 
         schedule_type TEXT,
 
@@ -92,11 +108,38 @@ const db = new sqlite3.Database("./todo.db", (err) => {
 
     db.run(`
       ALTER TABLE tasks
-      ADD COLUMN difficulty TEXT DEFAULT '보통'
+      ADD COLUMN category TEXT DEFAULT '개인'
     `, (err) => {});
 
-    db.run(`ALTER TABLE tasks ADD COLUMN status TEXT DEFAULT '진행 전'`, (err) => {});
-    db.run(`ALTER TABLE tasks ADD COLUMN category TEXT DEFAULT '개인'`, (err) => {});
+    db.run(`
+      ALTER TABLE tasks
+      ADD COLUMN created_at TEXT
+    `, (err) => {});
+
+    db.run(`
+      ALTER TABLE tasks
+      ADD COLUMN completed_date TEXT
+    `, (err) => {});
+
+    db.run(`
+      ALTER TABLE schedules
+      ADD COLUMN memo TEXT
+    `, (err) => {});
+
+    db.run(`
+      ALTER TABLE schedules
+      ADD COLUMN category TEXT DEFAULT '개인'
+    `, (err) => {});
+
+    db.run(`
+      ALTER TABLE schedules
+      ADD COLUMN quadrant TEXT DEFAULT '나중에 해'
+    `, (err) => {});
+
+    db.run(`
+      ALTER TABLE schedules
+      ADD COLUMN is_completed INTEGER DEFAULT 0
+    `, (err) => {});
   }
 });
 

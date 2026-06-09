@@ -1,6 +1,11 @@
 const express = require("express");
 const db = require("../database");
 
+//date.js 호출
+const {
+    getAppDate
+} = require("../utils/date");
+
 const router = express.Router();
 
 // 회원가입
@@ -36,101 +41,168 @@ router.post("/signup", (req, res) => {
 
 // 로그인
 router.post("/login", (req, res) => {
-    const { username, password } = req.body;
+  const { username, password } = req.body;
 
-    db.get(
-      `
-      SELECT *
-      FROM users
-      WHERE username = ?
-      AND password = ?
-      `,
-      [username, password],
-      (err, user) => {
+  db.get(
+    `
+    SELECT *
+    FROM users
+    WHERE username = ?
+    AND password = ?
+    `,
+    [username, password],
+    (err, user) => {
 
-          if(err) {
-            return res.status(500).json({
-              success: false,
-              message: err.message
+      if(err) {
+        return res.status(500).json({
+          success: false,
+          message: err.message
+        });
+      }
+
+      if (!user) {
+        return res.json({
+          success: false,
+          message: "아이디 또는 비밀번호가 틀렸습니다."
+        });
+      }
+
+      const today =
+        getAppDate();
+
+      const previousSuccessDate =
+        user.today_success_date;
+
+      const isNewDay =
+        user.today_success_date &&
+        user.today_success_date !== today;
+
+      const wasSuccessfulBeforeReset =
+        isNewDay &&
+        user.today_success === 1;
+
+      let shieldUsed = false;
+      let streakFailed = false;
+      let streakFrozen = false;
+
+      function finishLogin() {
+
+        db.run(
+          `
+          UPDATE users
+          SET
+            last_login_date = ?
+          WHERE id = ?
+          `,
+          [
+            today,
+            user.id
+          ],
+          (loginUpdateErr) => {
+
+            if (loginUpdateErr) {
+              return res.status(500).json({
+                success: false,
+                message: loginUpdateErr.message
+              });
+            }
+
+            res.json({
+              success: true,
+
+              shield_used: shieldUsed,
+              streak_failed: streakFailed,
+              streak_frozen: streakFrozen,
+
+              user_id: user.id,
+              username: user.username,
+
+              streak_count: user.streak_count,
+              best_streak: user.best_streak,
+              shield_count: user.shield_count,
+
+              message: "로그인 성공"
             });
           }
+        );
+      }
 
-          if (!user) {
-            return res.json({
-              success: false,
-              message: "아이디 또는 비밀번호가 틀렸습니다."
-            });
-          }
+      function continueAfterNewDayReset() {
 
-            const today =
-              new Date()
-                    .toISOString()
-                    .split("T")[0];
+        const shouldCheckStreak =
+          user.last_streak_check_date !== today;
 
-            const isNewDay =
-              user.today_success_date &&
-              user.today_success_date !== today;
+        const shouldFailStreak =
+          shouldCheckStreak &&
+          user.streak_count > 0 &&
+          user.today_success === 0 &&
+          !wasSuccessfulBeforeReset;
 
-            const wasSuccessfulBeforeReset =
-              isNewDay &&
-              user.today_success === 1;
+        if (!shouldFailStreak) {
+          return finishLogin();
+        }
 
-            let shieldUsed = false;
-            let streakFailed = false;
+        const checkDate =
+          previousSuccessDate;
 
-            if (isNewDay) {
+        if (!checkDate) {
+          return finishLogin();
+        }
 
-              if (wasSuccessfulBeforeReset) {
-                db.run(
-                  `
-                  UPDATE users
-                  SET
-                    today_success = 0,
-                    today_success_date = ?,
-                    last_streak_check_date = ?
-                  WHERE id = ?
-                  `,
-                  [
-                   today,
-                    today,
-                    user.id
-                  ]
-                );
+        db.get(
+          `
+          SELECT COUNT(*) AS count
+          FROM tasks
+          WHERE user_id = ?
+          AND recommended_date = ?
+          `,
+          [
+            user.id,
+            checkDate
+          ],
+          (recommendErr, result) => {
 
-              user.today_success = 0;
-              user.today_success_date = today;
-              user.last_streak_check_date = today;
-            
-            } else {
+            if (recommendErr) {
+              return res.status(500).json({
+                success: false,
+                message: recommendErr.message
+              });
+            }
+
+            const recommendedCount =
+              result ? result.count : 0;
+
+            if (recommendedCount === 0) {
+
               db.run(
                 `
                 UPDATE users
                 SET
-                  today_success = 0,
-                  today_success_date = ?
+                  last_streak_check_date = ?
                 WHERE id = ?
                 `,
                 [
                   today,
                   user.id
-                ]
+                ],
+                (freezeErr) => {
+
+                  if (freezeErr) {
+                    return res.status(500).json({
+                      success: false,
+                      message: freezeErr.message
+                    });
+                  }
+
+                  user.last_streak_check_date = today;
+                  streakFrozen = true;
+
+                  return finishLogin();
+                }
               );
 
-              user.today_success = 0;
-              user.today_success_date = today;
+              return;
             }
-          }
-
-          const shouldCheckStreak =
-            user.last_streak_check_date !== today;
-
-          const shouldFailStreak =
-            shouldCheckStreak &&
-            user.streak_count > 0 &&
-            user.today_success === 0 &&
-            !wasSuccessfulBeforeReset;
-
-          if (shouldFailStreak) {
 
             if (user.shield_count > 0) {
 
@@ -142,11 +214,25 @@ router.post("/login", (req, res) => {
                   last_streak_check_date = ?
                 WHERE id = ?
                 `,
-                [today, user.id]
-              );
+                [
+                  today,
+                  user.id
+                ],
+                (shieldErr) => {
 
-              user.shield_count -= 1;
-              shieldUsed = true;
+                  if (shieldErr) {
+                    return res.status(500).json({
+                      success: false,
+                      message: shieldErr.message
+                    });
+                  }
+
+                  user.shield_count -= 1;
+                  shieldUsed = true;
+
+                   return finishLogin();
+                }
+              );
 
             } else {
 
@@ -158,45 +244,99 @@ router.post("/login", (req, res) => {
                   last_streak_check_date = ?
                 WHERE id = ?
                 `,
-                [today, user.id]
-              );
+                [
+                  today,
+                  user.id
+                ],
+                (failErr) => {
 
-              user.streak_count = 0;
-              streakFailed = true;
+                  if (failErr) {
+                    return res.status(500).json({
+                      success: false,
+                      message: failErr.message
+                    });
+                  }
+
+                  user.streak_count = 0;
+                  streakFailed = true;
+
+                  return finishLogin();
+                }
+              );
             }
           }
+        );
+      }
 
+      if (isNewDay) {
+
+        if (wasSuccessfulBeforeReset) {
           db.run(
             `
             UPDATE users
             SET
-              last_login_date = ?
+              today_success = 0,
+              today_success_date = ?,
+              last_streak_check_date = ?
+            WHERE id = ?
+            `,
+            [
+              today,
+              today,
+              user.id
+            ],
+            (resetErr) => {
+
+              if (resetErr) {
+                return res.status(500).json({
+                  success: false,
+                  message: resetErr.message
+                });
+              }
+
+              user.today_success = 0;
+              user.today_success_date = today;
+              user.last_streak_check_date = today;
+
+              return continueAfterNewDayReset();
+            }
+          );
+
+        } else {
+          db.run(
+            `
+            UPDATE users
+            SET
+              today_success = 0,
+              today_success_date = ?
             WHERE id = ?
             `,
             [
               today,
               user.id
-            ]
+            ],
+            (resetErr) => {
+
+              if (resetErr) {
+                return res.status(500).json({
+                  success: false,
+                  message: resetErr.message
+                });
+              }
+
+              user.today_success = 0;
+              user.today_success_date = today;
+
+              return continueAfterNewDayReset();
+            }
           );
-
-          res.json({
-            success: true,
-
-            shield_used: shieldUsed,
-            streak_failed: streakFailed,
-
-            user_id: user.id,
-            username: user.username,
-
-            streak_count: user.streak_count,
-            best_streak: user.best_streak,
-            shield_count: user.shield_count,
-
-            message: "로그인 성공"
-          });
         }
 
-    );
+      } else {
+        return continueAfterNewDayReset();
+      }
+    } 
+  );
 });
 
 module.exports = router;

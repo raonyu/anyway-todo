@@ -1,6 +1,11 @@
 const express = require("express");
 const db = require("../database");
 
+//date.js 호출
+const {
+    getAppDate
+} = require("../utils/date");
+
 const router = express.Router();
 
 /*
@@ -39,9 +44,7 @@ router.post(
                 }
 
                 const today =
-                    new Date()
-                        .toISOString()
-                        .split("T")[0];
+                    getAppDate();
 
                 if (!user) {
                     return res.status(404).json({
@@ -155,7 +158,7 @@ router.post(
                                 }
 
                                 if (this.changes === 0) {
-                                    return req.status(404).json({
+                                    return res.status(404).json({
                                         success: false,
                                         message: "연속달성 정보를 업데이트할 사용자를 찾지 못했습니다."
                                     })

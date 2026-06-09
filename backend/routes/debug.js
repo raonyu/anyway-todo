@@ -171,4 +171,132 @@ router.delete("/debug/tasks", (req, res) => {
     );
 });
 
+/*
+====================================
+성공률 테스트용 과거 할일 데이터 생성
+POST /debug/success-rate-samples
+====================================
+*/
+router.post("/debug/success-rate-samples", (req, res) => {
+
+    const {
+        user_id,
+        category,
+        quadrant
+    } = req.body;
+
+    const finalCategory =
+        category || "학업";
+
+    const finalQuadrant =
+        quadrant || "나중에 해";
+
+    const samples = [
+        {
+            title: "성공률 샘플 1",
+            created_at: "2026-06-01",
+            deadline_date: "2026. 6. 11.",
+            completed_date: "2026-06-09",
+            is_completed: 1
+        },
+        {
+            title: "성공률 샘플 2",
+            created_at: "2026-06-01",
+            deadline_date: "2026. 6. 11.",
+            completed_date: "2026-06-10",
+            is_completed: 1
+        },
+        {
+            title: "성공률 샘플 3",
+            created_at: "2026-06-01",
+            deadline_date: "2026. 6. 11.",
+            completed_date: "2026-06-12",
+            is_completed: 1
+        },
+        {
+            title: "성공률 샘플 4",
+            created_at: "2026-06-01",
+            deadline_date: "2026. 6. 11.",
+            completed_date: "2026-06-08",
+            is_completed: 1
+        },
+        {
+            title: "성공률 샘플 5",
+            created_at: "2026-06-01",
+            deadline_date: "2026. 6. 11.",
+            completed_date: null,
+            is_completed: 0
+        }
+    ];
+
+    let remaining =
+        samples.length;
+
+    let responseSent =
+        false;
+
+    samples.forEach(sample => {
+
+        db.run(
+            `
+            INSERT INTO tasks
+            (
+                user_id,
+                title,
+                memo,
+                deadline_date,
+                deadline_time,
+                quadrant,
+                category,
+                created_at,
+                completed_date,
+                is_completed,
+                recommended_today
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
+            `,
+            [
+                user_id,
+                sample.title,
+                "성공률 테스트용 데이터",
+                sample.deadline_date,
+                "12:00",
+                finalQuadrant,
+                finalCategory,
+                sample.created_at,
+                sample.completed_date,
+                sample.is_completed
+            ],
+            (err) => {
+
+                if (responseSent) {
+                    return;
+                }
+
+                if (err) {
+                    responseSent = true;
+
+                    return res.status(500).json({
+                        success: false,
+                        message: err.message
+                    });
+                }
+
+                remaining--;
+
+                if (remaining === 0) {
+                    responseSent = true;
+
+                    res.json({
+                        success: true,
+                        inserted: samples.length,
+                        category: finalCategory,
+                        quadrant: finalQuadrant
+                    });
+                }
+            }
+        );
+    });
+});
+
 module.exports = router;

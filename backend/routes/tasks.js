@@ -5,27 +5,46 @@ const {
     generateRecommendations
 } = require("./recommendations");
 
+//date.js 호출 
+const {
+    getAppDate
+} = require("../utils/date");
+
 const router = express.Router();
 
 /*
 ====================================
 1. 할 일 목록 조회
-GET /tasks?user_id=1&category=개인
+GET /tasks?user_id=1
 ====================================
 */
 router.get("/tasks", (req, res) => {
     const userId = req.query.user_id;
-    // 💡 프론트엔드에서 넘어온 카테고리 값 받기 (없으면 기본값 '개인')
-    const category = req.query.category || "개인"; 
+    const category = req.query.category;
 
-    db.all(
-        `
+    let sql = `
         SELECT *
         FROM tasks
-        WHERE user_id = ? AND category = ?
+        WHERE user_id = ?
+    `;
+
+    const params = [userId];
+
+    if (category) {
+        sql += `
+        AND category = ?
+        `;
+
+        params.push(category);
+    }
+
+    sql += `
         ORDER BY id DESC
-        `,
-        [userId, category], 
+    `;
+
+    db.all(
+        sql,
+        params,
         (err, rows) => {
             if (err) {
                 return res.status(500).json({
@@ -42,22 +61,42 @@ router.get("/tasks", (req, res) => {
 /*
 ====================================
 사분면별 조회
-GET /tasks/quadrant?user_id=1&category=개인
+GET /tasks/quadrant?user_id=1
+GET /tasks/quadrant?user_id=1&category=학업
 ====================================
 */
 router.get("/tasks/quadrant", (req, res) => {
 
-    const userId = req.query.user_id;
-    const category = req.query.category || "개인"; 
+    const userId =
+        req.query.user_id;
 
-    db.all(
-        `
+    const category =
+        req.query.category;
+
+    let sql = `
         SELECT *
         FROM tasks
-        WHERE user_id = ? AND is_completed = 0 AND category = ?
+        WHERE user_id = ?
+        AND is_completed = 0
+    `;
+
+    const params = [userId];
+
+    if (category) {
+        sql += `
+        AND category = ?
+        `;
+
+        params.push(category);
+    }
+
+    sql += `
         ORDER BY id DESC
-        `,
-        [userId, category], 
+    `;
+
+    db.all(
+        sql,
+        params,
         (err, tasks) => {
 
             if (err) {
@@ -69,6 +108,7 @@ router.get("/tasks/quadrant", (req, res) => {
 
             res.json({
                 success: true,
+                category: category || "전체",
 
                 urgent_important:
                     tasks.filter(
@@ -96,6 +136,146 @@ router.get("/tasks/quadrant", (req, res) => {
 
 /*
 ====================================
+작업 + 일정 통합 조회
+GET /todo-items?user_id=1
+GET /todo-items?user_id=1&category=학업
+====================================
+*/
+router.get("/todo-items", (req, res) => {
+
+    const userId =
+        req.query.user_id;
+
+    const category =
+        req.query.category;
+
+    if (!userId) {
+        return res.status(400).json({
+            success: false,
+            message: "user_id가 필요합니다."
+        });
+    }
+
+    let taskSql = `
+        SELECT *
+        FROM tasks
+        WHERE user_id = ?
+    `;
+
+    const taskParams = [userId];
+
+    if (category) {
+        taskSql += `
+        AND category = ?
+        `;
+
+        taskParams.push(category);
+    }
+
+    taskSql += `
+        ORDER BY id DESC
+    `;
+
+    let scheduleSql = `
+        SELECT *
+        FROM schedules
+        WHERE user_id = ?
+    `;
+
+    const scheduleParams = [userId];
+
+    if (category) {
+        scheduleSql += `
+        AND category = ?
+        `;
+
+        scheduleParams.push(category);
+    }
+
+    scheduleSql += `
+        ORDER BY schedule_date ASC, start_time ASC
+    `;
+
+    db.all(
+        taskSql,
+        taskParams,
+        (taskErr, tasks) => {
+
+            if (taskErr) {
+                return res.status(500).json({
+                    success: false,
+                    message: taskErr.message
+                });
+            }
+
+            db.all(
+                scheduleSql,
+                scheduleParams,
+                (scheduleErr, schedules) => {
+
+                    if (scheduleErr) {
+                        return res.status(500).json({
+                            success: false,
+                            message: scheduleErr.message
+                        });
+                    }
+
+                    const taskItems =
+                        tasks.map(task => ({
+                            item_type: "task",
+                            id: task.id,
+                            user_id: task.user_id,
+                            title: task.title,
+                            memo: task.memo,
+                            category: task.category,
+                            quadrant: task.quadrant,
+                            is_completed: task.is_completed,
+                            date: task.deadline_date,
+                            start_time: null,
+                            end_time: task.deadline_time,
+                            original: task
+                        }));
+
+                    const scheduleItems =
+                        schedules.map(schedule => ({
+                            item_type: "schedule",
+                            id: schedule.id,
+                            user_id: schedule.user_id,
+                            title: schedule.title,
+                            memo: schedule.memo,
+                            category: schedule.category,
+                            quadrant: schedule.quadrant,
+                            is_completed: schedule.is_completed,
+                            date: schedule.schedule_date,
+                            start_time: schedule.start_time,
+                            end_time: schedule.end_time,
+                            original: schedule
+                        }));
+
+                    const items =
+                        [
+                            ...taskItems,
+                            ...scheduleItems
+                        ];
+
+                    res.json({
+                        success: true,
+                        category: category || "전체",
+                        task_count: tasks.length,
+                        schedule_count: schedules.length,
+                        total_count: items.length,
+                        tasks,
+                        schedules,
+                        items
+                    });
+                }
+            );
+        }
+    );
+});
+
+/*
+====================================
 2. 할 일 추가
 POST /tasks
 ====================================
@@ -109,29 +289,34 @@ router.post("/tasks", (req, res) => {
         deadline_date,
         deadline_time,
         quadrant,
-        difficulty,
-        status,    
-        category   
+
+        category
     } = req.body;
 
-    let finalDeadlineDate = deadline_date;
-    let finalDeadlineTime = deadline_time;
-    let finalQuadrant = quadrant;
-    let finalDifficulty = difficulty;
-    let finalStatus = status;     
-    let finalCategory = category; 
+    const allowedCategories = [
+        "학업",
+        "개인",
+        "성장"
+    ];
 
-    if (!finalDifficulty) {
-        finalDifficulty = "보통";
-    }
-    
-    if (!finalStatus) {
-        finalStatus = "진행 전"; // 기본값
+    let finalCategory =
+        category || "개인";
+
+    if (!allowedCategories.includes(finalCategory)) {
+        return res.status(400).json({
+            success: false,
+            message: "올바르지 않은 카테고리 값입니다."
+        });
     }
 
-    if (!finalCategory) {
-        finalCategory = "개인"; // 기본값
-    }
+    let finalDeadlineDate =
+        deadline_date;
+
+    let finalDeadlineTime =
+        deadline_time;
+
+    let finalQuadrant =
+        quadrant;
 
     if (!finalDeadlineDate) {
 
@@ -158,18 +343,17 @@ router.post("/tasks", (req, res) => {
         `
         INSERT INTO tasks
         (
-            user_id,
-            title,
-            memo,
-            deadline_date,
-            deadline_time,
-            quadrant,
-            difficulty,
-            is_completed,
-            status,     
-            category   
+        user_id,
+        title,
+        memo,
+        deadline_date,
+        deadline_time,
+        quadrant,
+        category,
+        created_at,
+        is_completed
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)
         `,
         [
             user_id,
@@ -178,9 +362,8 @@ router.post("/tasks", (req, res) => {
             finalDeadlineDate,
             finalDeadlineTime,
             finalQuadrant,
-            finalDifficulty,
-            finalStatus,   
-            finalCategory  
+            finalCategory,
+            getAppDate()
         ],
         function (err) {
 
@@ -230,11 +413,25 @@ router.put("/tasks/:id", (req, res) => {
         deadline_date,
         deadline_time,
         quadrant,
-        difficulty,
-        is_completed,
-        status,     
-        category   
+        category,
+        is_completed
     } = req.body;
+
+    const allowedCategories = [
+        "학업",
+        "개인",
+        "성장"
+    ];
+
+    const finalCategory =
+        category || "개인";
+
+    if (!allowedCategories.includes(finalCategory)) {
+        return res.status(400).json({
+            success: false,
+            message: "올바르지 않은 카테고리 값입니다."
+        });
+    }
 
     db.run(
         `
@@ -245,10 +442,13 @@ router.put("/tasks/:id", (req, res) => {
             deadline_date = ?,
             deadline_time = ?,
             quadrant = ?,
-            difficulty = ?,
+            category = ?,
             is_completed = ?,
-            status = ?,   
-            category = ?  
+            completed_date =
+                CASE
+                    WHEN ? = 1 THEN ?
+                    ELSE completed_date
+                END
         WHERE id = ?
         `,
         [
@@ -257,11 +457,11 @@ router.put("/tasks/:id", (req, res) => {
             deadline_date,
             deadline_time,
             quadrant,
-            difficulty || "보통",
+            finalCategory,
             is_completed ? 1 : 0,
-            status || "진행 전", 
-            category || "개인",  
-            taskId,
+            is_completed ? 1 : 0,
+            getAppDate(),
+            taskId
         ],
         function (err) {
 
@@ -270,7 +470,393 @@ router.put("/tasks/:id", (req, res) => {
                     success: false,
                     message: err.message,
                 });
-            } 
+            }
+
+            if (is_completed) {
+
+                db.get(
+                    `
+                    SELECT *
+                    FROM tasks
+                    WHERE id = ?
+                    `,
+                    [taskId],
+                    (taskErr, task) => {
+
+                        if (
+                            !taskErr &&
+                            task &&
+                            task.recommended_today === 1
+                        ) {
+
+                            db.get(
+                                `
+                                SELECT *
+                                FROM users
+                                WHERE id = ?
+                                `,
+                                [user_id],
+                                (userErr, user) => {
+
+                                    const today =
+                                        getAppDate();
+
+                                    if (
+                                        !userErr &&
+                                        user &&
+                                        !(
+                                            user.today_success === 1 &&
+                                            user.today_success_date === today
+                                        )
+                                    ) {
+
+                                        const nextStreak =
+                                            user.streak_count + 1;
+
+                                        let rewardShield = false;
+
+                                        if (
+                                            nextStreak % 7 === 0 &&
+                                            nextStreak >
+                                            user.last_shield_reward_streak
+                                        ) {
+                                            rewardShield = true;
+                                        }
+
+                                        db.run(
+                                            `
+                                            UPDATE users
+                                            SET
+                                                today_success = 1,
+                                                today_success_date = ?,
+
+                                                streak_count = streak_count + 1,
+
+                                                shield_count =
+                                                CASE
+                                                    WHEN ? = 1
+                                                    THEN shield_count + 1
+                                                    ELSE shield_count
+                                                END,
+
+                                                last_shield_reward_streak =
+                                                CASE
+                                                    WHEN ? = 1
+                                                    THEN ?
+                                                    ELSE last_shield_reward_streak
+                                                END,
+
+                                                best_streak =
+                                                CASE
+                                                    WHEN streak_count + 1 > best_streak
+                                                    THEN streak_count + 1
+                                                    ELSE best_streak
+                                                END
+                                            WHERE id = ?
+                                            `,
+                                            [
+                                                today,
+
+                                                rewardShield ? 1 : 0,
+
+                                                rewardShield ? 1 : 0,
+                                                nextStreak,
+
+                                                user_id
+                                            ]
+                                        );
+                                    }
+                                }
+                            );
+                        }
+                    }
+                );
+            }
+
+            generateRecommendations(
+                user_id,
+                (recommendErr) => {
+                    if (recommendErr) {
+                        return res.status(500).json({
+                            success:false,
+                            message: recommendErr.message
+                        });
+                    }
+
+                    res.json({
+                        success: true,
+                        updated: this.changes
+                    });
+                }
+            );
+        }
+    );
+});
+
+router.put("/tasks/:id", (req, res) => {
+
+    const taskId = req.params.id;
+
+    const {
+        user_id,
+        title,
+        memo,
+        deadline_date,
+        deadline_time,
+        quadrant,
+        category,
+        is_completed
+    } = req.body;
+
+    const allowedCategories = [
+        "학업",
+        "개인",
+        "성장"
+    ];
+
+    const allowedQuadrants = [
+        "당장 해",
+        "그래도 해",
+        "해치워",
+        "나중에 해"
+    ];
+
+    const finalCategory =
+        category || "개인";
+
+    if (!user_id) {
+        return res.status(400).json({
+            success: false,
+            message: "user_id가 필요합니다."
+        });
+    }
+
+    if (!title || !deadline_date || !deadline_time || !quadrant) {
+        return res.status(400).json({
+            success: false,
+            message: "title, deadline_date, deadline_time, quadrant는 필수입니다."
+        });
+    }
+
+    if (!allowedCategories.includes(finalCategory)) {
+        return res.status(400).json({
+            success: false,
+            message: "올바르지 않은 카테고리 값입니다."
+        });
+    }
+
+    if (!allowedQuadrants.includes(quadrant)) {
+        return res.status(400).json({
+            success: false,
+            message: "올바르지 않은 중요도 값입니다."
+        });
+    }
+
+    db.get(
+        `
+        SELECT *
+        FROM tasks
+        WHERE id = ?
+        AND user_id = ?
+        `,
+        [
+            taskId,
+            user_id
+        ],
+        (selectErr, previousTask) => {
+
+            if (selectErr) {
+                return res.status(500).json({
+                    success: false,
+                    message: selectErr.message
+                });
+            }
+
+            if (!previousTask) {
+                return res.status(404).json({
+                    success: false,
+                    message: "할 일을 찾을 수 없습니다."
+                });
+            }
+
+            const wasRecommendedToday =
+                previousTask.recommended_today === 1;
+
+            const wasAlreadyCompleted =
+                previousTask.is_completed === 1;
+
+            const shouldProcessStreak =
+                is_completed &&
+                !wasAlreadyCompleted &&
+                wasRecommendedToday;
+
+            db.run(
+                `
+                UPDATE tasks
+                SET
+                    title = ?,
+                    memo = ?,
+                    deadline_date = ?,
+                    deadline_time = ?,
+                    quadrant = ?,
+                    category = ?,
+                    is_completed = ?,
+                    completed_date =
+                        CASE
+                            WHEN ? = 1 THEN ?
+                            ELSE NULL
+                        END
+                WHERE id = ?
+                AND user_id = ?
+                `,
+                [
+                    title,
+                    memo,
+                    deadline_date,
+                    deadline_time,
+                    quadrant,
+                    finalCategory,
+                    is_completed ? 1 : 0,
+                    is_completed ? 1 : 0,
+                    getAppDate(),
+                    taskId,
+                    user_id
+                ],
+                function(updateErr) {
+
+                    if (updateErr) {
+                        return res.status(500).json({
+                            success: false,
+                            message: updateErr.message
+                        });
+                    }
+
+                    if (this.changes === 0) {
+                        return res.status(404).json({
+                            success: false,
+                            message: "수정할 할 일을 찾을 수 없습니다."
+                        });
+                    }
+
+                    function refreshRecommendations() {
+                        generateRecommendations(
+                            user_id,
+                            (recommendErr) => {
+
+                                if (recommendErr) {
+                                    return res.status(500).json({
+                                        success: false,
+                                        message: recommendErr.message
+                                    });
+                                }
+
+                                res.json({
+                                    success: true,
+                                    updated: 1,
+                                    streak_checked: shouldProcessStreak
+                                });
+                            }
+                        );
+                    }
+
+                    if (!shouldProcessStreak) {
+                        return refreshRecommendations();
+                    }
+
+                    const today =
+                        getAppDate();
+
+                    db.get(
+                        `
+                        SELECT *
+                        FROM users
+                        WHERE id = ?
+                        `,
+                        [user_id],
+                        (userErr, user) => {
+
+                            if (userErr) {
+                                return res.status(500).json({
+                                    success: false,
+                                    message: userErr.message
+                                });
+                            }
+
+                            if (!user) {
+                                return res.status(404).json({
+                                    success: false,
+                                    message: "사용자를 찾을 수 없습니다."
+                                });
+                            }
+
+                            if (
+                                user.today_success === 1 &&
+                                user.today_success_date === today
+                            ) {
+                                return refreshRecommendations();
+                            }
+
+                            const nextStreak =
+                                user.streak_count + 1;
+
+                            const rewardShield =
+                                nextStreak % 7 === 0 &&
+                                nextStreak > user.last_shield_reward_streak;
+
+                            db.run(
+                                `
+                                UPDATE users
+                                SET
+                                    today_success = 1,
+                                    today_success_date = ?,
+
+                                    streak_count = streak_count + 1,
+
+                                    shield_count =
+                                    CASE
+                                        WHEN ? = 1
+                                        THEN shield_count + 1
+                                        ELSE shield_count
+                                    END,
+
+                                    last_shield_reward_streak =
+                                    CASE
+                                        WHEN ? = 1
+                                        THEN ?
+                                        ELSE last_shield_reward_streak
+                                    END,
+
+                                    best_streak =
+                                    CASE
+                                        WHEN streak_count + 1 > best_streak
+                                        THEN streak_count + 1
+                                        ELSE best_streak
+                                    END
+                                WHERE id = ?
+                                `,
+                                [
+                                    today,
+                                    rewardShield ? 1 : 0,
+                                    rewardShield ? 1 : 0,
+                                    nextStreak,
+                                    user_id
+                                ],
+                                (streakErr) => {
+
+                                    if (streakErr) {
+                                        return res.status(500).json({
+                                            success: false,
+                                            message: streakErr.message
+                                        });
+                                    }
+
+                                    refreshRecommendations();
+                                }
+                            );
+                        }
+                    );
+                }
+            );
         }
     );
 });
@@ -340,25 +926,58 @@ DELETE /tasks/:id
 router.delete("/tasks/:id", (req, res) => {
 
     const taskId = req.params.id;
+    const userId = req.query.user_id || req.body.user_id;
+
+    if (!userId) {
+        return res.status(400).json({
+            success: false,
+            message: "user_id가 필요합니다."
+        });
+    }
 
     db.run(
         `
         DELETE FROM tasks
         WHERE id = ?
+        AND user_id = ?
         `,
-        [taskId],
-        function (err) {
+        [
+            taskId,
+            userId
+        ],
+        function(err) {
+
             if (err) {
                 return res.status(500).json({
                     success: false,
-                    message: err.message,
+                    message: err.message
                 });
             }
 
-            res.json({
-                success: true,
-                deleted: this.changes,
-            });
+            if (this.changes === 0) {
+                return res.status(404).json({
+                    success: false,
+                    message: "삭제할 할 일을 찾을 수 없습니다."
+                });
+            }
+
+            generateRecommendations(
+                userId,
+                (recommendErr) => {
+
+                    if (recommendErr) {
+                        return res.status(500).json({
+                            success: false,
+                            message: recommendErr.message
+                        });
+                    }
+
+                    res.json({
+                        success: true,
+                        deleted: this.changes
+                    });
+                }
+            );
         }
     );
 });

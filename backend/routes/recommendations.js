@@ -1,6 +1,11 @@
 const express = require("express");
 const db = require("../database");
 
+//date.js 호출
+const {
+    getAppDate
+} = require("../utils/date");
+
 const router = express.Router();
 
 function getDeadlineUrgency(deadlineDate) {
@@ -46,6 +51,32 @@ function getDeadlineUrgency(deadlineDate) {
     return 0;
 }
 
+function getConditionScore(condition) {
+
+    if (condition === "침대에게 승리") {
+        return 10;
+    }
+
+    if (condition === "침대에게 패배") {
+        return -10;
+    }
+
+    return 0;
+}
+
+function getRecommendationThreshold(condition) {
+
+    if (condition === "침대에게 승리") {
+        return 45;
+    }
+
+    if (condition === "침대에게 패배") {
+        return 60;
+    }
+
+    return 50;
+}
+
 function generateRecommendations(userId, callback) {
 
     db.run(
@@ -62,83 +93,121 @@ function generateRecommendations(userId, callback) {
                 return callback(resetErr);
             }
 
-            db.all(
+            db.get(
                 `
-                SELECT *
-                FROM tasks
-                WHERE user_id = ?
-                AND is_completed = 0
+                SELECT
+                    today_condition
+                FROM users
+                WHERE id = ?
                 `,
                 [userId],
-                (err, tasks) => {
+                (userErr, user) => {
 
-                    if (err) {
-                        return callback(err);
+                    if (userErr) {
+                        return callback(userErr);
                     }
 
-                    const quadrantScore = {
-                        "당장 해": 40,
-                        "그래도 해": 30,
-                        "해치워": 20,
-                        "나중에 해": 10
-                    };
+                    const currentCondition =
+                        user && user.today_condition
+                            ? user.today_condition
+                            : "침대와 협상 중";
 
-                    tasks.sort((a, b) => {
+                    db.all(
+                        `
+                        SELECT *
+                        FROM tasks
+                        WHERE user_id = ?
+                        AND is_completed = 0
+                        `,
+                        [userId],
+                        (err, tasks) => {
 
-                        const scoreA =
-                            getDeadlineUrgency(a.deadline_date)
-                            + (quadrantScore[a.quadrant] || 0);
-
-                        const scoreB =
-                            getDeadlineUrgency(b.deadline_date)
-                            + (quadrantScore[b.quadrant] || 0);
-
-                        return scoreB - scoreA;
-                    });
-
-                    const topTasks =
-                        tasks.slice(0, 3);
-
-                    let remaining =
-                        topTasks.length;
-
-                    if (remaining === 0) {
-                        return callback(null, []);
-                    }
-
-                    topTasks.forEach(task => {
-
-                        db.run(
-                            `
-                            UPDATE tasks
-                            SET
-                                recommended_today = 1,
-                                recommended_date = ?
-                            WHERE id = ?
-                            `,
-                            [
-                                new Date()
-                                    .toISOString()
-                                    .split("T")[0],
-                                task.id
-                            ],
-                            (updateErr) => {
-
-                                if (updateErr) {
-                                    return callback(updateErr);
-                                }
-
-                                remaining--;
-
-                                if (remaining === 0) {
-                                    callback(
-                                        null,
-                                        topTasks
-                                    );
-                                }
+                            if (err) {
+                                return callback(err);
                             }
-                        );
-                    });
+
+                            const quadrantScore = {
+                                "당장 해": 40,
+                                "그래도 해": 30,
+                                "해치워": 20,
+                                "나중에 해": 10
+                            };
+
+                            const threshold =
+                                getRecommendationThreshold(currentCondition);
+
+                            const scoredTasks =
+                                tasks
+                                    .map(task => {
+
+                                        const score =
+                                            getDeadlineUrgency(task.deadline_date)
+                                            + (quadrantScore[task.quadrant] || 0)
+                                            + getConditionScore(currentCondition);
+
+                                        return {
+                                            ...task,
+                                            recommendation_score: score
+                                        };
+                                    })
+                                    .filter(task =>
+                                        task.recommendation_score >= threshold
+                                    )
+                                    .sort((a, b) =>
+                                        b.recommendation_score - a.recommendation_score
+                                    );
+
+                            const topTasks =
+                                scoredTasks.slice(0, 3);
+
+                            let remaining =
+                                topTasks.length;
+
+                            if (remaining === 0) {
+                                return callback(null, {
+                                    tasks: [],
+                                    rest_day: true,
+                                    message: "오늘은 추천할 만한 급한 일이 없네요! 푹 쉬세요 ☕"
+                                });
+                            }
+
+                            topTasks.forEach(task => {
+
+                                db.run(
+                                    `
+                                    UPDATE tasks
+                                    SET
+                                        recommended_today = 1,
+                                        recommended_date = ?
+                                    WHERE id = ?
+                                    `,
+                                    [
+                                        getAppDate(),
+                                        task.id
+                                    ],
+                                    (updateErr) => {
+
+                                        if (updateErr) {
+                                            return callback(updateErr);
+                                        }
+
+                                        remaining--;
+
+                                        if (remaining === 0) {
+                                            callback(
+                                                null,
+                                                {
+                                                    tasks: topTasks,
+                                                    rest_day: false,
+                                                    message: null
+                                                }
+                                            );
+                                        }
+                                    }
+                                );
+                            });
+                        }
+                    );
                 }
             );
         }
@@ -189,6 +258,13 @@ router.post("/recommendations/generate", (req, res) => {
 
     const { user_id } = req.body;
 
+    if (!user_id) {
+        return res.status(400).json({
+            success: false,
+            message: "user_id가 필요합니다."
+        });
+    }
+
     generateRecommendations(
         user_id,
         (err, tasks) => {
@@ -202,7 +278,10 @@ router.post("/recommendations/generate", (req, res) => {
 
             res.json({
                 success: true,
-                count: tasks.length
+                count: result.tasks.length,
+                tasks: result.tasks,
+                rest_day: result.rest_day,
+                message: result.message
             });
         }
     );
