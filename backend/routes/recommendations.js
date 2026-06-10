@@ -3,8 +3,14 @@ const db = require("../database");
 
 //date.js 호출
 const {
-    getAppDate
+    getAppDate,
+    parseAppDate
 } = require("../utils/date");
+
+const {
+    QUADRANT_SCORE,
+    CONDITION_THRESHOLD
+} = require("../utils/constants");
 
 const router = express.Router();
 
@@ -28,10 +34,15 @@ function getDeadlineUrgency(deadlineDate) {
         Number(match[3])
     );
 
-    const today = new Date();
+    const today =
+        parseAppDate(getAppDate());
 
-    today.setHours(0,0,0,0);
-    target.setHours(0,0,0,0);
+    if (!today) {
+        return 0;
+    }
+
+    today.setHours(0, 0, 0, 0);
+    target.setHours(0, 0, 0, 0);
 
     const diffDays =
         Math.floor(
@@ -39,42 +50,20 @@ function getDeadlineUrgency(deadlineDate) {
             (1000 * 60 * 60 * 24)
         );
 
-    if (diffDays <= 0) return 25;
-    if (diffDays === 1) return 15;
+    if (diffDays <= 0) return 40;
+    if (diffDays === 1) return 30;
     if (diffDays >= 2 && diffDays <= 5) {
-        return 10;
+        return 20;
     }
     if (diffDays >=6 && diffDays <= 14) {
-        return 5;
-    }
-
-    return 0;
-}
-
-function getConditionScore(condition) {
-
-    if (condition === "침대에게 승리") {
         return 10;
-    }
-
-    if (condition === "침대에게 패배") {
-        return -10;
     }
 
     return 0;
 }
 
 function getRecommendationThreshold(condition) {
-
-    if (condition === "침대에게 승리") {
-        return 45;
-    }
-
-    if (condition === "침대에게 패배") {
-        return 60;
-    }
-
-    return 50;
+    return CONDITION_THRESHOLD[condition] || 50;
 }
 
 function generateRecommendations(userId, callback) {
@@ -83,7 +72,8 @@ function generateRecommendations(userId, callback) {
         `
         UPDATE tasks
         SET
-            recommended_today = 0
+            recommended_today = 0,
+            recommendation_score = 0
         WHERE user_id = ?
         `,
         [userId],
@@ -112,6 +102,9 @@ function generateRecommendations(userId, callback) {
                             ? user.today_condition
                             : "침대와 협상 중";
 
+                    const threshold =
+                        getRecommendationThreshold(currentCondition);
+
                     db.all(
                         `
                         SELECT *
@@ -120,21 +113,11 @@ function generateRecommendations(userId, callback) {
                         AND is_completed = 0
                         `,
                         [userId],
-                        (err, tasks) => {
+                        (taskErr, tasks) => {
 
-                            if (err) {
-                                return callback(err);
-                            }
-
-                            const quadrantScore = {
-                                "당장 해": 40,
-                                "그래도 해": 30,
-                                "해치워": 20,
-                                "나중에 해": 10
+                            if (taskErr) {
+                                return callback(taskErr);
                             };
-
-                            const threshold =
-                                getRecommendationThreshold(currentCondition);
 
                             const scoredTasks =
                                 tasks
@@ -142,28 +125,26 @@ function generateRecommendations(userId, callback) {
 
                                         const score =
                                             getDeadlineUrgency(task.deadline_date)
-                                            + (quadrantScore[task.quadrant] || 0)
-                                            + getConditionScore(currentCondition);
+                                            + (QUADRANT_SCORE[task.quadrant] || 0);
 
                                         return {
                                             ...task,
                                             recommendation_score: score
                                         };
                                     })
-                                    .filter(task =>
-                                        task.recommendation_score >= threshold
-                                    )
                                     .sort((a, b) =>
                                         b.recommendation_score - a.recommendation_score
                                     );
 
+                            const recommendedCandidates =
+                                scoredTasks.filter(task =>
+                                    task.recommendation_score >= threshold
+                                );
+
                             const topTasks =
-                                scoredTasks.slice(0, 3);
+                                recommendedCandidates.slice(0, 3);
 
-                            let remaining =
-                                topTasks.length;
-
-                            if (remaining === 0) {
+                            if (scoredTasks.length === 0) {
                                 return callback(null, {
                                     tasks: [],
                                     rest_day: true,
@@ -171,38 +152,77 @@ function generateRecommendations(userId, callback) {
                                 });
                             }
 
-                            topTasks.forEach(task => {
+                            let remainingScoreUpdates =
+                                scoredTasks.length;
+
+                            scoredTasks.forEach(task => {
 
                                 db.run(
                                     `
                                     UPDATE tasks
                                     SET
-                                        recommended_today = 1,
-                                        recommended_date = ?
+                                        recommendation_score = ?
                                     WHERE id = ?
                                     `,
                                     [
-                                        getAppDate(),
+                                        task.recommendation_score,
                                         task.id
                                     ],
-                                    (updateErr) => {
+                                    (scoreUpdateErr) => {
 
-                                        if (updateErr) {
-                                            return callback(updateErr);
+                                        if (scoreUpdateErr) {
+                                            return callback(scoreUpdateErr);
                                         }
 
-                                        remaining--;
+                                        remainingScoreUpdates--;
 
-                                        if (remaining === 0) {
-                                            callback(
-                                                null,
-                                                {
-                                                    tasks: topTasks,
-                                                    rest_day: false,
-                                                    message: null
+                                        if (remainingScoreUpdates !== 0) {
+                                            return;
+                                        }
+
+                                        if (topTasks.length === 0) {
+                                            return callback(null, {
+                                                tasks: [],
+                                                rest_day: true,
+                                                message: "오늘은 추천할 만한 급한 일이 없네요! 푹 쉬세요 ☕"
+                                            });
+                                        }
+
+                                        let remainingTopUpdates =
+                                            topTasks.length;
+
+                                        topTasks.forEach(topTask => {
+
+                                            db.run(
+                                                `
+                                                UPDATE tasks
+                                                SET
+                                                    recommended_today = 1,
+                                                    recommended_date = ?
+                                                WHERE id = ?
+                                                `,
+                                                [
+                                                    getAppDate(),
+                                                    topTask.id
+                                                ],
+                                                (topUpdateErr) => {
+
+                                                    if (topUpdateErr) {
+                                                        return callback(topUpdateErr);
+                                                    }
+
+                                                    remainingTopUpdates--;
+
+                                                    if (remainingTopUpdates === 0) {
+                                                        callback(null, {
+                                                            tasks: topTasks,
+                                                            rest_day: false,
+                                                            message: null
+                                                        });
+                                                    }
                                                 }
                                             );
-                                        }
+                                        });
                                     }
                                 );
                             });
@@ -222,28 +242,90 @@ GET /recommendations?user_id=1
 */
 router.get("/recommendations", (req, res) => {
 
-    const userId = req.query.user_id;
+    const userId =
+        req.query.user_id;
 
-    db.all(
+    const category =
+        req.query.category;
+
+    if (!userId) {
+        return res.status(400).json({
+            success: false,
+            message: "user_id가 필요합니다."
+        });
+    }
+
+    db.get(
         `
-        SELECT *
-        FROM tasks
-        WHERE user_id = ?
-        AND recommended_today = 1
-        ORDER BY id DESC
-        LIMIT 3
+        SELECT
+            today_condition
+        FROM users
+        WHERE id = ?
         `,
         [userId],
-        (err, rows) => {
+        (userErr, user) => {
 
-            if (err) {
+            if (userErr) {
                 return res.status(500).json({
                     success: false,
-                    message: err.message
+                    message: userErr.message
                 });
             }
 
-            res.json(rows);
+            if (!user) {
+                return res.status(404).json({
+                    success: false,
+                    message: "사용자를 찾을 수 없습니다."
+                });
+            }
+
+            const currentCondition =
+                user.today_condition || "침대와 협상 중";
+
+            const threshold =
+                getRecommendationThreshold(currentCondition);
+
+            let sql = `
+                SELECT *
+                FROM tasks
+                WHERE user_id = ?
+                AND is_completed = 0
+                AND recommendation_score >= ?
+            `;
+
+            const params = [
+                userId,
+                threshold
+            ];
+
+            if (category) {
+                sql += `
+                AND category = ?
+                `;
+
+                params.push(category);
+            }
+
+            sql += `
+                ORDER BY recommendation_score DESC, id DESC
+                LIMIT 3
+            `;
+
+            db.all(
+                sql,
+                params,
+                (err, rows) => {
+
+                    if (err) {
+                        return res.status(500).json({
+                            success: false,
+                            message: err.message
+                        });
+                    }
+
+                    res.json(rows);
+                }
+            );
         }
     );
 });
@@ -256,7 +338,8 @@ POST /recommendations/generate
 */
 router.post("/recommendations/generate", (req, res) => {
 
-    const { user_id } = req.body;
+    const { user_id } =
+        req.body || {};
 
     if (!user_id) {
         return res.status(400).json({
@@ -289,5 +372,6 @@ router.post("/recommendations/generate", (req, res) => {
 
 module.exports = {
     router,
-    generateRecommendations
+    generateRecommendations,
+    getRecommendationThreshold
 };

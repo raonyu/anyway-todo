@@ -8,6 +8,7 @@ const streakRoutes = require("./routes/streak");
 const debugRoutes = require("./routes/debug");
 const successRateRoutes = require("./routes/successRate");
 const scheduleRoutes = require("./routes/schedules");
+const freeTimeRoutes = require("./routes/freeTime");
 
 const {
     router: recommendationRoutes
@@ -40,6 +41,9 @@ app.use(scheduleRoutes);
 
 //successRate.js 연결
 app.use(successRateRoutes);
+
+//freeTime.js 연결
+app.use(freeTimeRoutes);
 
 app.listen(3000, () => {
     console.log("서버 실행 중");

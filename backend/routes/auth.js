@@ -10,7 +10,15 @@ const router = express.Router();
 
 // 회원가입
 router.post("/signup", (req, res) => {
-    const { username, password } = req.body;
+    const { username, password } = 
+      req.body || {};
+
+    if (!username || !password) {
+      return res.status(400).json({
+          success: false,
+          message: "username과 password는 필수입니다."
+      });
+    }
 
     db.run(
         `
@@ -41,7 +49,15 @@ router.post("/signup", (req, res) => {
 
 // 로그인
 router.post("/login", (req, res) => {
-  const { username, password } = req.body;
+  const { username, password } =
+    req.body || {};
+
+  if (!username || !password) {
+    return res.status(400).json({
+      success: false,
+      message: "username과 password는 필수입니다."
+    });
+  }
 
   db.get(
     `
@@ -54,7 +70,7 @@ router.post("/login", (req, res) => {
     (err, user) => {
 
       if(err) {
-        return res.status(500).json({
+        return res.status(400).json({
           success: false,
           message: err.message
         });

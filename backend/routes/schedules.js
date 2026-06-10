@@ -3,18 +3,10 @@ const db = require("../database");
 
 const router = express.Router();
 
-const allowedCategories = [
-    "학업",
-    "개인",
-    "성장"
-];
-
-const allowedQuadrants = [
-    "당장 해",
-    "그래도 해",
-    "해치워",
-    "나중에 해"
-];
+const {
+    ALLOWED_CATEGORIES,
+    ALLOWED_QUADRANTS
+} = require("../utils/constants");
 
 /*
 ====================================
@@ -33,7 +25,7 @@ router.post("/schedules", (req, res) => {
         end_time,
         category,
         quadrant
-    } = req.body;
+    } = req.body || {};
 
     const finalCategory =
         category || "개인";
@@ -48,14 +40,14 @@ router.post("/schedules", (req, res) => {
         });
     }
 
-    if (!allowedCategories.includes(finalCategory)) {
+    if (!ALLOWED_CATEGORIES.includes(finalCategory)) {
         return res.status(400).json({
             success: false,
             message: "올바르지 않은 카테고리 값입니다."
         });
     }
 
-    if (!allowedQuadrants.includes(finalQuadrant)) {
+    if (!ALLOWED_QUADRANTS.includes(finalQuadrant)) {
         return res.status(400).json({
             success: false,
             message: "올바르지 않은 중요도 값입니다."
@@ -192,22 +184,29 @@ router.put("/schedules/:id", (req, res) => {
         req.params.id;
 
     const {
+        user_id,
         title,
         memo,
         schedule_date,
         start_time,
         end_time,
         category,
-
         quadrant,
         is_completed
-    } = req.body;
+    } = req.body || {};
 
     const finalCategory =
         category || "개인";
 
     const finalQuadrant =
         quadrant || "나중에 해";
+
+    if (!user_id) {
+        return res.status(400).json({
+            success: false,
+            message: "user_id가 필요합니다."
+        });
+    }
 
     if (!title || !schedule_date || !start_time || !end_time) {
         return res.status(400).json({
@@ -216,14 +215,14 @@ router.put("/schedules/:id", (req, res) => {
         });
     }
 
-    if (!allowedCategories.includes(finalCategory)) {
+    if (!ALLOWED_CATEGORIES.includes(finalCategory)) {
         return res.status(400).json({
             success: false,
             message: "올바르지 않은 카테고리 값입니다."
         });
     }
 
-    if (!allowedQuadrants.includes(finalQuadrant)) {
+    if (!ALLOWED_QUADRANTS.includes(finalQuadrant)) {
         return res.status(400).json({
             success: false,
             message: "올바르지 않은 중요도 값입니다."
@@ -254,7 +253,8 @@ router.put("/schedules/:id", (req, res) => {
             finalCategory,
             finalQuadrant,
             is_completed ? 1 : 0,
-            scheduleId
+            scheduleId,
+            user_id
         ],
         function(err) {
 
@@ -265,9 +265,17 @@ router.put("/schedules/:id", (req, res) => {
                 });
             }
 
+            if (this.changes === 0) {
+                return res.status(404).json({
+                    success: false,
+                    message: "수정할 일정을 찾을 수 없습니다."
+                });
+            }
+
             res.json({
                 success: true,
-                updated: this.changes
+                updated: this.changes,
+                schedule_id: Number(scheduleId)
             });
         }
     );
@@ -284,13 +292,29 @@ router.delete("/schedules/:id", (req, res) => {
     const scheduleId =
         req.params.id;
 
+    const body =
+        req.body || {};
+
+    const userId =
+        req.query.user_id || body.user_id;
+
+    if (!userId) {
+        return res.status(400).json({
+            success: false,
+            message: "user_id가 필요합니다."
+        });
+    }
+
     db.run(
         `
         DELETE FROM schedules
         WHERE id = ?
         AND user_id = ?
         `,
-        [scheduleId],
+        [
+            scheduleId,
+            userId
+        ],
         function(err) {
 
             if (err) {
@@ -303,16 +327,16 @@ router.delete("/schedules/:id", (req, res) => {
             if (this.changes === 0) {
                 return res.status(404).json({
                     success: false,
-                    message: "일정을 찾을 수 없습니다."
+                    message: "삭제할 일정을 찾을 수 없습니다."
                 });
             }
 
             res.json({
                 success: true,
-                deleted: this.changes
+                deleted: this.changes,
+                schedule_id: Number(scheduleId)
             });
         }
     );
 });
-
 module.exports = router;

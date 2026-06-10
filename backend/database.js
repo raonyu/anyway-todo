@@ -35,13 +35,15 @@ const db = new sqlite3.Database("./todo.db", (err) => {
         quadrant TEXT NOT NULL,
         
         category TEXT DEFAULT '개인',
+        estimated_time_level TEXT DEFAULT '보통',
+        estimated_minutes INTEGER DEFAULT 60,
 
         delay_count INTEGER DEFAULT 0,
         is_completed INTEGER DEFAULT 0,
         status TEXT DEFAULT '진행 전',
         recommended_today INTEGER DEFAULT 0,
         recommended_date TEXT,
-
+        recommendation_score INTEGER DEFAULT 0,
 
         created_at TEXT,
         completed_date TEXT,
@@ -127,6 +129,22 @@ const db = new sqlite3.Database("./todo.db", (err) => {
     `, (err) => {});
 
     db.run(`
+      ALTER TABLE tasks
+      ADD COLUMN estimated_time_level TEXT DEFAULT '보통'
+    `, (err) => {});
+
+    db.run(`
+      ALTER TABLE tasks
+      ADD COLUMN estimated_minutes INTEGER DEFAULT 60
+    `, (err) => {});
+
+    db.run(`
+      ALTER TABLE tasks
+      ADD COLUMN recommendation_score INTEGER DEFAULT 0
+    `, (err) => {});
+    
+
+    db.run(`
       ALTER TABLE schedules
       ADD COLUMN quadrant TEXT DEFAULT '나중에 해'
     `, (err) => {});
@@ -139,6 +157,7 @@ const db = new sqlite3.Database("./todo.db", (err) => {
     db.run(`ALTER TABLE tasks 
       ADD COLUMN status TEXT DEFAULT '진행 전'
       `, (err) => {});
+
   }
 });
 

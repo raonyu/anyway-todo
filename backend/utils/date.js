@@ -5,20 +5,101 @@ function getAppDate() {
         now.setDate(now.getDate() - 1);
     }
 
+    return formatAppDate(now);
+}
+
+function formatAppDate(date) {
+
     const year =
-        now.getFullYear();
+        date.getFullYear();
 
     const month =
-        String(now.getMonth() + 1)
+        String(date.getMonth() + 1)
             .padStart(2, "0");
+
+    const day =
+        String(date.getDate())
+            .padStart(2, "0");
+
+    return `${year}-${month}-${day}`;
+}
+
+function parseAppDate(appDate) {
+
+    if (!appDate) {
+        return null;
+    }
+
+    const parts =
+        appDate.split("-");
+
+    if (parts.length !== 3) {
+        return null;
+    }
+
+    return new Date(
+        Number(parts[0]),
+        Number(parts[1]) - 1,
+        Number(parts[2])
+    );
+}
+
+function parseDeadlineDate(deadlineDate) {
+
+    if (!deadlineDate) {
+        return null;
+    }
+
+    const match =
+        deadlineDate.match(/(\d+)\.\s*(\d+)\.\s*(\d+)\./);
+
+    if (!match) {
+        return null;
+    }
+
+    return new Date(
+        Number(match[1]),
+        Number(match[2]) - 1,
+        Number(match[3])
+    );
+}
+
+function getNextDate(appDate) {
 
     const date =
-        String(now.getDate())
-            .padStart(2, "0");
+        parseAppDate(appDate);
 
-    return `${year}-${month}-${date}`;
+    if (!date) {
+        return null;
+    }
+
+    date.setDate(
+        date.getDate() + 1
+    );
+
+    return formatAppDate(date);
+}
+
+function getDaysBetween(startDate, endDate) {
+
+    if (!startDate || !endDate) {
+        return null;
+    }
+
+    startDate.setHours(0, 0, 0, 0);
+    endDate.setHours(0, 0, 0, 0);
+
+    return Math.floor(
+        (endDate - startDate) /
+        (1000 * 60 * 60 * 24)
+    );
 }
 
 module.exports = {
-    getAppDate
+    getAppDate,
+    formatAppDate,
+    parseAppDate,
+    parseDeadlineDate,
+    getNextDate,
+    getDaysBetween
 };

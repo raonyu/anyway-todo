@@ -2,66 +2,13 @@ const express = require("express");
 const db = require("../database");
 
 const {
-    getAppDate
+    getAppDate,
+    parseAppDate,
+    parseDeadlineDate,
+    getDaysBetween
 } = require("../utils/date");
 
 const router = express.Router();
-
-function parseDeadlineDate(deadlineDate) {
-
-    if (!deadlineDate) {
-        return null;
-    }
-
-    const match = deadlineDate.match(
-        /(\d+)\.\s*(\d+)\.\s*(\d+)\./
-    );
-
-    if (!match) {
-        return null;
-    }
-
-    return new Date(
-        Number(match[1]),
-        Number(match[2]) - 1,
-        Number(match[3])
-    );
-}
-
-function parseAppDate(appDate) {
-
-    if (!appDate) {
-        return null;
-    }
-
-    const parts =
-        appDate.split("-");
-
-    if (parts.length !== 3) {
-        return null;
-    }
-
-    return new Date(
-        Number(parts[0]),
-        Number(parts[1]) - 1,
-        Number(parts[2])
-    );
-}
-
-function getDaysBetween(startDate, endDate) {
-
-    if (!startDate || !endDate) {
-        return null;
-    }
-
-    startDate.setHours(0, 0, 0, 0);
-    endDate.setHours(0, 0, 0, 0);
-
-    return Math.floor(
-        (endDate - startDate) /
-        (1000 * 60 * 60 * 24)
-    );
-}
 
 function getSuccessRateMessage(successRate) {
 
@@ -97,6 +44,57 @@ function isTaskSuccessful(task) {
     }
 
     return completedDate <= deadlineDate;
+}
+
+function getLeadDays(task) {
+
+    const createdDate =
+        parseAppDate(task.created_at);
+
+    const deadlineDate =
+        parseDeadlineDate(task.deadline_date);
+
+    return getDaysBetween(
+        createdDate,
+        deadlineDate
+    );
+}
+
+function filterByLeadDays(tasks, targetLeadDays, range) {
+
+    return tasks.filter(task => {
+
+        const leadDays =
+            getLeadDays(task);
+
+        if (leadDays === null) {
+            return false;
+        }
+
+        return Math.abs(
+            leadDays - targetLeadDays
+        ) <= range;
+    });
+}
+
+function calculateSuccessResult(comparableTasks) {
+
+    const successCount =
+        comparableTasks.filter(task =>
+            isTaskSuccessful(task)
+        ).length;
+
+    const successRate =
+        Math.round(
+            (successCount / comparableTasks.length) * 100
+        );
+
+    return {
+        successCount,
+        successRate,
+        successRateMessage:
+            getSuccessRateMessage(successRate)
+    };
 }
 
 /*
@@ -163,16 +161,12 @@ router.get("/tasks/:id/success-rate", (req, res) => {
                 FROM tasks
                 WHERE user_id = ?
                 AND id != ?
-                AND category = ?
-                AND quadrant = ?
                 AND created_at IS NOT NULL
                 AND deadline_date IS NOT NULL
                 `,
                 [
                     targetTask.user_id,
-                    taskId,
-                    targetTask.category,
-                    targetTask.quadrant
+                    taskId
                 ],
                 (historyErr, historyTasks) => {
 
@@ -183,52 +177,97 @@ router.get("/tasks/:id/success-rate", (req, res) => {
                         });
                     }
 
-                    const comparableTasks =
+                    const today =
+                        parseAppDate(getAppDate());
+
+                    const validHistoryTasks =
                         historyTasks.filter(task => {
 
-                            const createdDate =
-                                parseAppDate(task.created_at);
+                            if (task.is_completed === 1) {
+                                return true;
+                            }
 
                             const deadlineDate =
                                 parseDeadlineDate(task.deadline_date);
 
-                            const leadDays =
-                                getDaysBetween(
-                                    createdDate,
-                                    deadlineDate
-                                );
-
-                            if (leadDays === null) {
+                            if (!deadlineDate || !today) {
                                 return false;
                             }
 
-                            return Math.abs(
-                                leadDays - targetLeadDays
-                            ) <= 3;
+                            return deadlineDate < today;
                         });
+
+                    const sameCategoryAndQuadrant =
+                        validHistoryTasks.filter(task =>
+                            task.category === targetTask.category &&
+                            task.quadrant === targetTask.quadrant
+                        );
+
+                    const sameCategory =
+                        validHistoryTasks.filter(task =>
+                            task.category === targetTask.category
+                        );
+
+                    const step1 =
+                        filterByLeadDays(
+                            sameCategoryAndQuadrant,
+                            targetLeadDays,
+                            3
+                        );
+
+                    const step2 =
+                        filterByLeadDays(
+                            sameCategoryAndQuadrant,
+                            targetLeadDays,
+                            5
+                        );
+
+                    const step3 =
+                        filterByLeadDays(
+                            sameCategory,
+                            targetLeadDays,
+                            7
+                        );
+
+                    let comparableTasks = [];
+                    let matchedLevel = "";
+
+                    if (step1.length >= 5) {
+                        comparableTasks = step1;
+                        matchedLevel =
+                            "같은 카테고리, 같은 중요도, 비슷한 시작 여유일 기준";
+                    } else if (step2.length >= 5) {
+                        comparableTasks = step2;
+                        matchedLevel =
+                            "같은 카테고리, 같은 중요도, 넓은 시작 여유일 기준";
+                    } else if (step3.length >= 5) {
+                        comparableTasks = step3;
+                        matchedLevel =
+                            "같은 카테고리, 비슷한 시작 여유일 기준";
+                    }
 
                     if (comparableTasks.length < 5) {
                         return res.json({
                             success: true,
                             status: "수집중...",
                             success_message: "과거 데이터가 부족해요!",
-                            sample_count: comparableTasks.length,
-                            required_count: 5
+                            sample_count: Math.max(
+                                step1.length,
+                                step2.length,
+                                step3.length
+                            ),
+                            required_count: 5,
+                            target_category: targetTask.category,
+                            target_quadrant: targetTask.quadrant,
+                            target_lead_days: targetLeadDays
                         });
                     }
 
-                    const successCount =
-                        comparableTasks.filter(
-                            task => isTaskSuccessful(task)
-                        ).length;
-
-                    const successRate =
-                        Math.round(
-                            (successCount / comparableTasks.length) * 100
-                        );
-
-                    const successRateMessage =
-                        getSuccessRateMessage(successRate);
+                    const {
+                        successCount,
+                        successRate,
+                        successRateMessage
+                    } = calculateSuccessResult(comparableTasks);
 
                     res.json({
                         success: true,
@@ -237,9 +276,12 @@ router.get("/tasks/:id/success-rate", (req, res) => {
                         success_message: successRateMessage,
                         success_count: successCount,
                         total_count: comparableTasks.length,
+                        matched_level: matchedLevel,
                         category: targetTask.category,
                         quadrant: targetTask.quadrant,
-                        lead_days: targetLeadDays
+                        lead_days: targetLeadDays,
+                        explanation:
+                            `비슷한 과거 할 일 ${comparableTasks.length}개 중 ${successCount}개를 마감 전에 완료했어요.`
                     });
                 }
             );

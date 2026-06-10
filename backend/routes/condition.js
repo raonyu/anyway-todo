@@ -19,7 +19,14 @@ router.post("/condition", (req, res) => {
     const {
         user_id,
         condition
-    } = req.body;
+    } = req.body || {};
+
+    if (!user_id) {
+        return res.status(400).json({
+            success: false,
+            message: "user_id가 필요합니다."
+        });
+    }
 
     const allowedConditions = [
         "침대에게 승리",
@@ -62,6 +69,13 @@ router.post("/condition", (req, res) => {
                 });
             }
 
+            if (this.changes === 0) {
+                return res.status(404).json({
+                    success: false,
+                    message: "사용자를 찾을 수 없습니다."
+                });
+            }
+
             res.json({
                 success: true,
                 condition: finalCondition,
@@ -81,6 +95,13 @@ router.get("/condition/check", (req, res) => {
 
     const userId =
         req.query.user_id;
+
+    if (!userId) {
+        return res.status(400).json({
+            success: false,
+            message: "user_id가 필요합니다."
+        });
+    }
 
     const today =
          getAppDate();

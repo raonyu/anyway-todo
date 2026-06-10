@@ -5,12 +5,18 @@ const {
     generateRecommendations
 } = require("./recommendations");
 
-//date.js 호출 
 const {
     getAppDate
 } = require("../utils/date");
 
 const router = express.Router();
+
+const {
+    ALLOWED_CATEGORIES,
+    ALLOWED_QUADRANTS,
+    ALLOWED_ESTIMATED_TIME_LEVELS,
+    getEstimatedMinutes
+} = require("../utils/constants");
 
 /*
 ====================================
@@ -21,6 +27,13 @@ GET /tasks?user_id=1&category=개인
 router.get("/tasks", (req, res) => {
     const userId = req.query.user_id;
     const category = req.query.category;
+
+    if (!userId) {
+        return res.status(400).json({
+            success: false,
+            message: "user_id가 필요합니다."
+        });
+    }
 
     let sql = `
         SELECT *
@@ -58,19 +71,20 @@ router.get("/tasks", (req, res) => {
     );
 });
 
-/*
-====================================
-사분면별 조회
-GET /tasks/quadrant?user_id=1
-GET /tasks/quadrant?user_id=1&category=학업
-====================================
-*/
+//사분면 별 조회
 router.get("/tasks/quadrant", (req, res) => {
 
     const userId = req.query.user_id;
 
     const category =
         req.query.category;
+
+    if (!userId) {
+        return res.status(400).json({
+            success: false,
+            message: "user_id가 필요합니다."
+        });
+    }
 
     let sql = `
         SELECT *
@@ -133,13 +147,7 @@ router.get("/tasks/quadrant", (req, res) => {
     );
 });
 
-/*
-====================================
-작업 + 일정 통합 조회
-GET /todo-items?user_id=1
-GET /todo-items?user_id=1&category=학업
-====================================
-*/
+//통합 조회(작업 + 일정)
 router.get("/todo-items", (req, res) => {
 
     const userId =
@@ -288,19 +296,44 @@ router.post("/tasks", (req, res) => {
         deadline_date,
         deadline_time,
         quadrant,
-        category
-    } = req.body;
-
-    const allowedCategories = [
-        "학업",
-        "개인",
-        "성장"
-    ];
+        category,
+        estimated_time_level
+    } = req.body || {};
 
     let finalCategory =
         category || "개인";
 
-    if (!allowedCategories.includes(finalCategory)) {
+    let finalEstimatedTimeLevel =
+        estimated_time_level || "보통";
+    
+    if (!user_id || !title) {
+        return res.status(400).json({
+            success: false,
+            message: "user_id와 title은 필수입니다."
+        });
+    }
+
+    if (!ALLOWED_ESTIMATED_TIME_LEVELS.includes(finalEstimatedTimeLevel)) {
+        return res.status(400).json({
+            success: false,
+            message: "올바르지 않은 예상시간 값입니다."
+        });
+    }
+
+    const finalEstimatedMinutes =
+        getEstimatedMinutes(finalEstimatedTimeLevel);
+
+    if (
+        Number.isNaN(finalEstimatedMinutes) ||
+        finalEstimatedMinutes <= 0
+    ) {
+        return res.status(400).json({
+            success: false,
+            message: "estimated_minutes는 1 이상의 숫자여야 합니다."
+        });
+    }
+
+    if (!ALLOWED_CATEGORIES.includes(finalCategory)) {
         return res.status(400).json({
             success: false,
             message: "올바르지 않은 카테고리 값입니다."
@@ -337,6 +370,13 @@ router.post("/tasks", (req, res) => {
         finalQuadrant = "나중에 해";
     }
 
+    if (!ALLOWED_QUADRANTS.includes(finalQuadrant)) {
+        return res.status(400).json({
+            success: false,
+            message: "올바르지 않은 중요도 값입니다."
+        });
+    }
+
     db.run(
         `
         INSERT INTO tasks
@@ -348,10 +388,12 @@ router.post("/tasks", (req, res) => {
         deadline_time,
         quadrant,
         category,
+        estimated_time_level,
+        estimated_minutes,
         created_at,
         is_completed
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
         `,
         [
             user_id,
@@ -361,6 +403,8 @@ router.post("/tasks", (req, res) => {
             finalDeadlineTime,
             finalQuadrant,
             finalCategory,
+            finalEstimatedTimeLevel,
+            finalEstimatedMinutes,
             getAppDate()
         ],
         function (err) {
@@ -412,24 +456,35 @@ router.put("/tasks/:id", (req, res) => {
         deadline_time,
         quadrant,
         category,
+        estimated_time_level,
         is_completed
-    } = req.body;
-
-    const allowedCategories = [
-        "학업",
-        "개인",
-        "성장"
-    ];
-
-    const allowedQuadrants = [
-        "당장 해",
-        "그래도 해",
-        "해치워",
-        "나중에 해"
-    ];
+    } = req.body || {};
 
     const finalCategory =
         category || "개인";
+
+    let finalEstimatedTimeLevel =
+        estimated_time_level || "보통";
+
+    if (!ALLOWED_ESTIMATED_TIME_LEVELS.includes(finalEstimatedTimeLevel)) {
+        return res.status(400).json({
+            success: false,
+            message: "올바르지 않은 예상시간 값입니다."
+        });
+    }
+
+    const finalEstimatedMinutes =
+        getEstimatedMinutes(finalEstimatedTimeLevel);
+
+    if (
+        Number.isNaN(finalEstimatedMinutes) ||
+        finalEstimatedMinutes <= 0
+    ) {
+        return res.status(400).json({
+            success: false,
+            message: "estimated_minutes는 1 이상의 숫자여야 합니다."
+        });
+    }
 
     if (!user_id) {
         return res.status(400).json({
@@ -445,14 +500,14 @@ router.put("/tasks/:id", (req, res) => {
         });
     }
 
-    if (!allowedCategories.includes(finalCategory)) {
+    if (!ALLOWED_CATEGORIES.includes(finalCategory)) {
         return res.status(400).json({
             success: false,
             message: "올바르지 않은 카테고리 값입니다."
         });
     }
 
-    if (!allowedQuadrants.includes(quadrant)) {
+    if (!ALLOWED_QUADRANTS.includes(quadrant)) {
         return res.status(400).json({
             success: false,
             message: "올바르지 않은 중요도 값입니다."
@@ -507,6 +562,8 @@ router.put("/tasks/:id", (req, res) => {
                     deadline_time = ?,
                     quadrant = ?,
                     category = ?,
+                    estimated_time_level = ?,
+                    estimated_minutes = ?,
                     is_completed = ?,
                     completed_date =
                         CASE
@@ -523,6 +580,8 @@ router.put("/tasks/:id", (req, res) => {
                     deadline_time,
                     quadrant,
                     finalCategory,
+                    finalEstimatedTimeLevel,
+                    finalEstimatedMinutes,
                     is_completed ? 1 : 0,
                     is_completed ? 1 : 0,
                     getAppDate(),
@@ -676,12 +735,34 @@ PUT /tasks/:id/quadrant
 */
 router.put("/tasks/:id/quadrant", (req, res) => {
 
-    const taskId = req.params.id;
+    const taskId =
+        req.params.id;
 
     const {
         user_id,
         quadrant
-    } = req.body;
+    } = req.body || {};
+
+    if (!user_id) {
+        return res.status(400).json({
+            success: false,
+            message: "user_id가 필요합니다."
+        });
+    }
+
+    if (!quadrant) {
+        return res.status(400).json({
+            success: false,
+            message: "quadrant가 필요합니다."
+        });
+    }
+
+    if (!ALLOWED_QUADRANTS.includes(quadrant)) {
+        return res.status(400).json({
+            success: false,
+            message: "올바르지 않은 중요도 값입니다."
+        });
+    }
 
     db.run(
         `
@@ -689,10 +770,12 @@ router.put("/tasks/:id/quadrant", (req, res) => {
         SET
             quadrant = ?
         WHERE id = ?
+        AND user_id = ?
         `,
         [
             quadrant,
-            taskId
+            taskId,
+            user_id
         ],
         function(err) {
 
@@ -700,6 +783,13 @@ router.put("/tasks/:id/quadrant", (req, res) => {
                 return res.status(500).json({
                     success: false,
                     message: err.message
+                });
+            }
+
+            if (this.changes === 0) {
+                return res.status(404).json({
+                    success: false,
+                    message: "이동할 할 일을 찾을 수 없습니다."
                 });
             }
 
@@ -716,14 +806,15 @@ router.put("/tasks/:id/quadrant", (req, res) => {
 
                     res.json({
                         success: true,
-                        moved: this.changes
+                        moved: this.changes,
+                        task_id: Number(taskId),
+                        quadrant
                     });
                 }
             );
         }
     );
 });
-
 /*
 ====================================
 4. 할 일 삭제
@@ -733,7 +824,14 @@ DELETE /tasks/:id
 router.delete("/tasks/:id", (req, res) => {
 
     const taskId = req.params.id;
-    const userId = req.query.user_id || req.body.user_id;
+
+    const body =
+        req.body || {};
+
+    const userId = 
+        req.query.user_id || body.user_id;
+    
+
 
     if (!userId) {
         return res.status(400).json({
