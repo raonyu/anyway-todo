@@ -110,17 +110,6 @@ export default function CalendarScreen({ activeCategory, categoryConfig }: Scree
     }
   };
 
-  const toggleTaskCompletion = async (task: Task) => {
-    const newStatus = !task.isCompleted;
-    const newStatusText = newStatus ? '완료' : '진행 전';
-    setTasks(tasks.map(t => t.id === task.id ? { ...t, isCompleted: newStatus, status: newStatusText } : t));
-    await fetch(`${SERVER_URL}/tasks/${task.id}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...task, is_completed: newStatus, status: newStatusText, category: activeCategory })
-    });
-  };
-
   const openDailyModal = (day: number) => { setSelectedDay(day); setDailyModalVisible(true); };
   const closeDailyModal = () => { setDailyModalVisible(false); setSelectedDay(null); };
 
@@ -257,7 +246,7 @@ export default function CalendarScreen({ activeCategory, categoryConfig }: Scree
         </ScrollView>
       </View>
 
-      {/* --- 일간 리스트 모달 --- */}
+      {/* --- 일간 리스트 모달 (체크박스 제거 완료) --- */}
       <Modal visible={isDailyModalVisible} transparent animationType="fade">
         <TouchableWithoutFeedback onPress={closeDailyModal}>
           <View style={styles.modalOverlay}>
@@ -276,12 +265,6 @@ export default function CalendarScreen({ activeCategory, categoryConfig }: Scree
                   ) : (
                     dailyTasks.map(task => (
                       <View key={task.id} style={styles.dailyTaskRow}>
-                        <TouchableOpacity onPress={() => toggleTaskCompletion(task)} style={styles.dailyCheckbox}>
-                          <Text style={[styles.checkboxText, task.isCompleted && styles.completedColor]}>
-                            {task.isCompleted ? '☑' : '☐'}
-                          </Text>
-                        </TouchableOpacity>
-
                         <TouchableOpacity style={styles.dailyTaskTitleWrapper} onPress={() => handleTaskEditClick(task)}>
                           <Text style={[styles.dailyTaskTitleText, task.isCompleted && styles.completedTaskText]}>
                             {task.title}
@@ -328,7 +311,6 @@ export default function CalendarScreen({ activeCategory, categoryConfig }: Scree
                   </TouchableOpacity>
                 </View>
 
-                {/* 💡 입력창이 먼저 오도록 구조 변경 */}
                 <TextInput style={styles.inputTitle} placeholder="제목" placeholderTextColor="#666" value={title} onChangeText={setTitle} autoFocus />
                 <TextInput style={styles.inputMemo} placeholder="메모" placeholderTextColor="#666" value={memo} onChangeText={setMemo} />
                 
@@ -338,7 +320,6 @@ export default function CalendarScreen({ activeCategory, categoryConfig }: Scree
                   </Text>
                 ) : null}
 
-                {/* 💡 라디오 버튼을 마감일 밑, 툴바 위로 내림 + 좌측 정렬 완료 */}
                 <View style={styles.statusRadioContainer}>
                   {(['진행 전', '진행 중', '완료'] as const).map(s => (
                     <TouchableOpacity 
@@ -438,14 +419,7 @@ export default function CalendarScreen({ activeCategory, categoryConfig }: Scree
 
 const styles = StyleSheet.create({
   container: { flex: 1, padding: 15, paddingTop: 10 },
-  // 💡 MainScreen과 동일한 여백
-  header: { 
-    flexDirection: 'row', 
-    justifyContent: 'space-between', 
-    alignItems: 'center', 
-    paddingHorizontal: 10, 
-    paddingBottom: 15 
-  },
+  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 10, paddingBottom: 15 },
   monthText: { fontFamily: 'Galmuri9', fontSize: 16, color: '#1a0f00' },
   arrowGroup: { flexDirection: 'row', alignItems: 'center', gap: 15 },
   arrowBtn: { padding: 5 },
@@ -475,9 +449,6 @@ const styles = StyleSheet.create({
   dailyTaskList: { marginTop: 15 },
   emptyTaskText: { fontFamily: 'Galmuri9', fontSize: 14, color: '#888', textAlign: 'center', marginTop: 30 },
   dailyTaskRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 18 },
-  dailyCheckbox: { marginRight: 12 },
-  checkboxText: { fontFamily: 'Galmuri9', fontSize: 18, color: '#fff' },
-  completedColor: { color: '#a0a0a0' },
   dailyTaskTitleWrapper: { flex: 1 },
   dailyTaskTitleText: { fontFamily: 'Galmuri9', fontSize: 15, color: '#fff' },
   completedTaskText: { color: '#a0a0a0', textDecorationLine: 'line-through' },
@@ -494,7 +465,6 @@ const styles = StyleSheet.create({
   qTab: { fontFamily: 'Galmuri9', fontSize: 12, color: '#666', padding: 5 },
   closeBtn: { fontFamily: 'Galmuri9', fontSize: 16, color: '#fff' },
   
-  // 💡 라디오 버튼 좌측 정렬! (justifyContent: 'flex-start') + 위쪽 마진 추가
   statusRadioContainer: { flexDirection: 'row', gap: 20, marginTop: 15, marginBottom: 5, justifyContent: 'flex-start' },
   statusRadioOption: { flexDirection: 'row', alignItems: 'center' },
   radioOuterCircle: { width: 16, height: 16, borderRadius: 8, borderWidth: 1.5, borderColor: '#666', justifyContent: 'center', alignItems: 'center', marginRight: 8 },

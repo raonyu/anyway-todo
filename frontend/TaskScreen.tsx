@@ -117,26 +117,28 @@ export default function TaskScreen({ activeCategory, categoryConfig }: ScreenPro
     setAddModalVisible(true); setDeadlineVisible(false);
   };
 
-  const toggleTaskCompletion = async (task: Task) => {
+const toggleTaskCompletion = async (task: Task) => {
     const newCompletedStatus = !task.isCompleted;
     const newStatusText = newCompletedStatus ? '완료' : '진행 전';
     setTasks(tasks.map(t => t.id === task.id ? { ...t, isCompleted: newCompletedStatus, status: newStatusText } : t));
     try {
       await fetch(`${SERVER_URL}/tasks/${task.id}`, {
         method: 'PUT', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ title: task.title, memo: task.memo, deadline_date: task.deadlineDate, deadline_time: task.deadlineTime, quadrant: task.quadrant, delay_count: task.delayCount, is_completed: newCompletedStatus, status: newStatusText, category: activeCategory })
+        // 💡 백엔드가 누군지 알 수 있게 user_id: 1 추가!
+        body: JSON.stringify({ user_id: 1, title: task.title, memo: task.memo, deadline_date: task.deadlineDate, deadline_time: task.deadlineTime, quadrant: task.quadrant, delay_count: task.delayCount, is_completed: newCompletedStatus, status: newStatusText, category: activeCategory })
       });
     } catch (error) { console.error("완료 상태 업데이트 실패:", error); }
   };
 
-  const saveTask = async () => {
+const saveTask = async () => {
     if (!title.trim()) return;
     const finalDate = hasDate ? deadlineDate : ''; const finalTime = hasTime ? deadlineTime : ''; const isCompleted = taskStatus === '완료';
     try {
       if (isEditMode && editTaskId) {
         await fetch(`${SERVER_URL}/tasks/${editTaskId}`, {
           method: 'PUT', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ title, memo, deadline_date: finalDate, deadline_time: finalTime, quadrant: currentQuadrant, delay_count: 0, is_completed: isCompleted, status: taskStatus, category: activeCategory })
+          // 💡 수정(PUT)할 때도 user_id: 1 추가!
+          body: JSON.stringify({ user_id: 1, title, memo, deadline_date: finalDate, deadline_time: finalTime, quadrant: currentQuadrant, delay_count: 0, is_completed: isCompleted, status: taskStatus, category: activeCategory })
         });
       } else {
         await fetch(`${SERVER_URL}/tasks`, {
@@ -148,9 +150,13 @@ export default function TaskScreen({ activeCategory, categoryConfig }: ScreenPro
     } catch (error) { console.error("태스크 저장 실패:", error); }
   };
 
-  const deleteTask = async () => {
+const deleteTask = async () => {
     if (!editTaskId) return;
-    try { await fetch(`${SERVER_URL}/tasks/${editTaskId}`, { method: 'DELETE' }); setAddModalVisible(false); fetchTasks(); } catch (error) { console.error("태스크 삭제 실패:", error); }
+    try { 
+      // 💡 삭제(DELETE)할 때는 주소 뒤에 ?user_id=1 을 붙여서 보냅니다!
+      await fetch(`${SERVER_URL}/tasks/${editTaskId}?user_id=1`, { method: 'DELETE' }); 
+      setAddModalVisible(false); fetchTasks(); 
+    } catch (error) { console.error("태스크 삭제 실패:", error); }
   };
 
   const generateCalendar = () => {

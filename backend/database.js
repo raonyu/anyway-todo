@@ -161,4 +161,14 @@ const db = new sqlite3.Database("./todo.db", (err) => {
   }
 });
 
+// [스트릭/방어권 보완 패치] 2주 쿠폰 날짜를 기록할 컬럼을 자동으로 추가.
+    db.run(`
+      ALTER TABLE users
+      ADD COLUMN last_coupon_date TEXT
+    `, (err) => {});
+
+    // 참고: 기존 테이블을 이미 생성했다면 DEFAULT 1로 고정되어 있을 테니
+    // 새 유저가 가입할 때 3개로 주거나, streak.js에 넣어둔 초기화 안전핀(0개일 때 3개로 채우는 로직)이 
+    // 프로토타입용 방어 코드로 작동함
+
 module.exports = db;
